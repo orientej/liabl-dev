@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .card { @apply bg-white rounded-2xl border border-black/10 p-6; }
+  .btn-primary {
+    @apply w-full flex items-center justify-center gap-2 py-3 px-6
+           bg-brand text-white font-semibold rounded-xl
+           hover:opacity-90 active:scale-[0.98] transition-all
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply py-3 px-5 rounded-xl border border-black/20 text-gray-500
+           hover:bg-gray-50 transition-all text-sm font-medium;
+  }
+  .form-input {
+    @apply w-full py-2.5 px-3 rounded-xl border border-black/20
+           bg-surface text-ink text-sm focus:outline-none focus:border-brand transition-colors font-sans;
+  }
+  .status-signed   { @apply bg-emerald-50  text-emerald-700  px-2.5 py-0.5 rounded-full text-xs font-medium; }
+  .status-pending  { @apply bg-amber-50    text-amber-700    px-2.5 py-0.5 rounded-full text-xs font-medium; }
+  .status-guardian { @apply bg-violet-50   text-violet-700   px-2.5 py-0.5 rounded-full text-xs font-medium; }
+  .status-pass     { @apply bg-brand/10    text-brand        px-2.5 py-0.5 rounded-full text-xs font-medium; }
+}
+@keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+.animate-fade-up { animation: fadeUp 0.25s ease both; }
+@keyframes pulse-soft { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+@keyframes flow { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+.animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
