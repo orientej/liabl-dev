@@ -18,6 +18,8 @@
 //   serve as a durable link, but genuinely private (not guessable).
 // - No browser crypto polyfill needed: Web Crypto API (SubtleCrypto) is
 //   available in all modern browsers and in Next.js edge/node runtimes.
+//
+// BUG FIX: JO 7/7/2026: lightning emoji generating javascript error. Replace with WinAnsi-safe marker. 
 
 import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from 'pdf-lib'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -225,7 +227,9 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
 
     // Clause title
     const titleColor = clause.highlight ? brandColor : rgb(0.1, 0.1, 0.1)
-    const prefix = clause.highlight ? '⚡ ' : ''
+    // JO 7/7/2026: emoji causing javascript errors. Replace with WinAnsi-safe marker. 
+    // const prefix = clause.highlight ? '⚡ ' : ''
+    const prefix = clause.highlight ? '* ' : ''    
     await drawText(page, `${i + 1}. ${prefix}${clause.title}`, MARGIN, curY, fontBold, 9, titleColor)
     nl()
 
