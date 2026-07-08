@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { calculateRiskScore } from '@/components/RiskScore_OLD_2026-07-08'
+import { calculateRiskScore } from '@/components/RiskScore'
 import WaiverDetail, { type WaiverDetailRow } from '@/components/operator/WaiverDetail'
-import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
+import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
 import { getActivityIcon } from '@/components/activity-icon'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
