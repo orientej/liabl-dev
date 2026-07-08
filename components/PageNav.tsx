@@ -8,6 +8,7 @@ interface Props {
   operatorName?: string           // shown beneath wordmark when present
   operatorAccent?: string         // logo mark color override
   showHomeButton?: boolean        // default true — set false on the homepage itself
+  onSignOut?: () => void          // shown as a "Sign Out" button when present
 }
 
 export default function PageNav({
@@ -16,6 +17,7 @@ export default function PageNav({
   operatorName,
   operatorAccent,
   showHomeButton = true,
+  onSignOut,
 }: Props) {
   return (
     <nav className="bg-white border-b border-black/10 px-5 py-3 flex items-center justify-between sticky top-0 z-40">
@@ -27,6 +29,13 @@ export default function PageNav({
           <span className="text-xs bg-surface border border-black/10 px-3 py-1.5 rounded-full text-gray-500">
             {badge}
           </span>
+        )}
+        {onSignOut && (
+          <button onClick={onSignOut}
+            className="text-sm px-3 py-1.5 rounded-xl border border-black/15 text-gray-600 hover:bg-surface hover:text-ink transition-all"
+            aria-label="Sign out">
+            Sign Out
+          </button>
         )}
         {showHomeButton && (
           <Link href="/"

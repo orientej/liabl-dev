@@ -98,33 +98,55 @@ export interface EngineData {
   clauses:             ClauseRow[]
 }
 
-// Single hardcoded operator slug remains here — same status as
-// sessions.operator_id's 'desert-ridge' default. This is single-operator
-// V1, not multi-tenant; the whole point of this rewrite is that adding a
-// *second* operator becomes a data change, not a code change. Which
-// operator the app currently runs as is still a code-level concern until
-// Milestone 5 auth exists.
+// Fallback when there's no authenticated user to resolve an operator
+// from — e.g. the participant-facing flow, which has no login concept.
+// Still single-operator-shaped in that sense, same as before.
 const DEFAULT_OPERATOR_SLUG = 'desert-ridge'
+
+async function resolveOperatorSlugForCurrentUser(supabase: SupabaseClient): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data, error } = await supabase
+    .from('operator_members')
+    .select('operators(slug)')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (error || !data) return null
+  const operator = Array.isArray(data.operators) ? data.operators[0] : data.operators
+  return operator?.slug ?? null
+}
 
 /**
  * Fetches everything needed to render the activity picker and generate
  * clauses for one operator. Call once (e.g. on flow mount) and reuse the
  * result — this data changes rarely and there's no reason to refetch it
  * per step.
+ *
+ * operatorSlug is optional: pass it explicitly to target a specific
+ * operator, or omit it to resolve from the current authenticated user's
+ * operator_members row (falling back to the single default operator if
+ * there's no logged-in user — e.g. the participant flow). This means
+ * dashboard call sites that already call fetchEngineData(supabase) with
+ * no slug automatically respect whichever operator is actually logged
+ * in, without needing to be touched themselves.
  */
 export async function fetchEngineData(
   supabase: SupabaseClient,
-  operatorSlug: string = DEFAULT_OPERATOR_SLUG,
+  operatorSlug?: string,
   options: { includeUnpublished?: boolean } = {}
 ): Promise<EngineData> {
+  const resolvedSlug = operatorSlug ?? (await resolveOperatorSlugForCurrentUser(supabase)) ?? DEFAULT_OPERATOR_SLUG
+
   const { data: operator, error: operatorError } = await supabase
     .from('operators')
     .select('id, slug, name, governing_law_state, governing_law_county')
-    .eq('slug', operatorSlug)
+    .eq('slug', resolvedSlug)
     .maybeSingle()
 
   if (operatorError) throw new Error(`operator lookup: ${operatorError.message}`)
-  if (!operator) throw new Error(`no operator found for slug "${operatorSlug}"`)
+  if (!operator) throw new Error(`no operator found for slug "${resolvedSlug}"`)
 
   let activitiesQuery = supabase
     .from('activities')

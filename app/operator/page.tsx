@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Logo from '@/components/Logo'
 import PageNav from '@/components/PageNav'
 import RosterTab        from '@/components/operator/RosterTab'
@@ -9,6 +10,7 @@ import IncidentTab      from '@/components/operator/IncidentTab'
 import MobileTab        from '@/components/operator/MobileTab'
 import NotificationTab  from '@/components/operator/NotificationTab'
 import MultiLocationTab from '@/components/operator/MultiLocationTab'
+import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert,
   IconAuditTrail, IconLocation, IconMobile,
@@ -17,7 +19,32 @@ import {
 type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'
 
 export default function OperatorPage() {
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>('roster')
+  // Falls back to the old hardcoded name only for the brief window before
+  // the real operator loads — middleware already guarantees someone is
+  // logged in by the time this page renders, so this is a loading state,
+  // not a permanent fallback.
+  const [operatorName, setOperatorName] = useState('Loading…')
+
+  useEffect(() => {
+    (async () => {
+      const member = await getCurrentOperatorMember()
+      if (member) {
+        setOperatorName(member.operatorName)
+      } else {
+        // Shouldn't happen — middleware already gates this route — but
+        // fail safe by sending back to login rather than showing a
+        // dashboard with no known operator.
+        router.replace('/operator/login')
+      }
+    })()
+  }, [router])
+
+  async function handleSignOut() {
+    await signOut()
+    router.replace('/operator/login')
+  }
 
   const tabs: { key:Tab; label:string; Icon: React.ComponentType<{size?:number;color?:string}> }[] = [
     { key:'roster',        label:'Roster',         Icon: IconSigned     },
@@ -31,7 +58,7 @@ export default function OperatorPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      <PageNav badge="Operator" operatorName="Desert Ridge Adventures" operatorAccent="#4B2ACF" />
+      <PageNav badge="Operator" operatorName={operatorName} operatorAccent="#4B2ACF" onSignOut={handleSignOut} />
       <div className="bg-white border-b border-black/10 px-5 overflow-x-auto">
         <div className="flex gap-0 max-w-4xl mx-auto min-w-max">
           {tabs.map(({ key, label, Icon }) => (
