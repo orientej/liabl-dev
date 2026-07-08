@@ -1,4 +1,4 @@
-import { ParticipantAnswers } from '@/lib/document-engine_OLD_2026-07-08'
+import { ParticipantAnswers } from '@/lib/document-engine'
 import { IconVerified } from '@/components/icons'
 interface Props { answers:ParticipantAnswers; labels:Record<string,string>; onRestart:()=>void }
 export default function StepConfirm({ answers, labels, onRestart }: Props) {

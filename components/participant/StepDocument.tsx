@@ -1,4 +1,4 @@
-import { WaiverClause, ParticipantAnswers } from '@/lib/document-engine_OLD_2026-07-08'
+import { WaiverClause, ParticipantAnswers } from '@/lib/document-engine'
 import { IconAIActive } from '@/components/icons'
 
 interface Props {
