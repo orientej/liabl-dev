@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { ActivityKey, ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
+import { ActivityKey, ActivityRecord } from '@/lib/document-engine'
 import { getActivityIcon } from '@/components/activity-icon'
 
 interface Props {
