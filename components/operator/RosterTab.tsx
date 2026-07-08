@@ -1,7 +1,9 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { calculateRiskScore } from '@/components/RiskScore'
+import { useState, useEffect, useMemo } from 'react'
+import { calculateRiskScore } from '@/components/RiskScore_OLD_2026-07-08'
 import WaiverDetail, { type WaiverDetailRow } from '@/components/operator/WaiverDetail'
+import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
+import { getActivityIcon } from '@/components/activity-icon'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,14 +52,9 @@ const DEMO: WaiverRow[] = [
 const DEMO_SESSION_LABEL = 'AM-04 · 9:00 AM'
 
 // ─── Display constants ────────────────────────────────────────────────────────
+// Activity icon/color/label now come from the activities table
+// (see lib/document-engine.ts fetchEngineData) instead of hardcoded maps.
 
-import { IconKayak, IconHike, IconATV, IconClimb } from '@/components/icons'
-
-const ICONS: Record<string, React.ComponentType<{size?:number;color?:string}>> = {
-  kayak: IconKayak, hike: IconHike, atv: IconATV, climb: IconClimb,
-}
-const ICON_COLOR: Record<string, string> = { kayak:'#4B2ACF', hike:'#15803D', atv:'#EA580C', climb:'#0891B2' }
-const LABELS: Record<string, string> = { kayak:'Whitewater Kayaking', hike:'Canyon Hiking', atv:'ATV Tour', climb:'Rock Climbing' }
 const BG = ['#E6F1FB','#E1F5EE','#EEE9FF','#FAEEDA','#FBEAF0','#EAF3DE']
 const FG = ['#185FA5','#0F6E56','#4B2ACF','#854F0B','#993556','#3B6D11']
 
@@ -90,12 +87,28 @@ export default function RosterTab() {
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [loading,      setLoading]      = useState(true)
   const [sessionLabel, setSessionLabel] = useState<string>(DEMO_SESSION_LABEL)
+  const [activities,   setActivities]   = useState<ActivityRecord[]>([])
+
+  const activitiesByKey = useMemo(
+    () => Object.fromEntries(activities.map(a => [a.key, a])),
+    [activities]
+  )
 
   useEffect(() => {
     async function load() {
       try {
         const { createClient } = await import('@/lib/supabase')
         const supabase = createClient()
+
+        // Activities are fetched independently of the waiver rows — this
+        // tab needs them for icon/color/label/base-risk regardless of
+        // whether any waivers exist yet.
+        try {
+          const engineData = await fetchEngineData(supabase)
+          setActivities(engineData.activities)
+        } catch (engineErr) {
+          console.error('[RosterTab] activities load failed:', engineErr)
+        }
 
         // Pull full waiver rows including answers + clauses so WaiverDetail
         // can render real data without a second per-row fetch on expand.
@@ -239,14 +252,17 @@ export default function RosterTab() {
           const isRet    = returningIds.has(w.id)
           const isSigned = !!w.signed_at
           const isOpen   = expanded === w.id
+          const activity = activitiesByKey[w.activity_key]
+          const Icon     = activity ? getActivityIcon(activity.icon) : null
 
           // Risk score on the roster row — still needs full factors from answers
           const answers  = w.answers ?? {}
           const risk     = calculateRiskScore({
-            activityKey:  w.activity_key,
-            isMinor:      w.is_minor,
-            healthStatus: answers.healthStatus as string | string[] | undefined,
-            age:          ageFromDob(answers.dob),
+            activityKey:      w.activity_key,
+            activityBaseRisk: activity?.baseRiskScore,
+            isMinor:          w.is_minor,
+            healthStatus:     answers.healthStatus as string | string[] | undefined,
+            age:              ageFromDob(answers.dob),
           })
           const rs = RISK_STYLES[risk.level]
 
@@ -268,8 +284,8 @@ export default function RosterTab() {
                     {isDemo && <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-full shrink-0">Sample</span>}
                   </div>
                   <div className="text-xs text-gray-400 inline-flex items-center gap-1.5">
-                    {(() => { const Icon = ICONS[w.activity_key]; const color = ICON_COLOR[w.activity_key]; return Icon ? <Icon size={12} color={color} /> : null })()}
-                    {LABELS[w.activity_key] ?? w.activity_key} · {time}
+                    {Icon && activity && <Icon size={12} color={activity.accentColor} />}
+                    {activity?.displayName ?? w.activity_key} · {time}
                   </div>
                 </div>
 
@@ -289,7 +305,7 @@ export default function RosterTab() {
               </div>
 
               {isOpen && (
-                <WaiverDetail row={w} index={i} isDemo={isDemo} onClose={() => setExpanded(null)} />
+                <WaiverDetail row={w} index={i} isDemo={isDemo} activities={activities} onClose={() => setExpanded(null)} />
               )}
             </div>
           )

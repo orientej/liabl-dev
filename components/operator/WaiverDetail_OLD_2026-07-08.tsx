@@ -8,7 +8,6 @@
 import { useState, useEffect } from 'react'
 import { calculateRiskScore } from '@/components/RiskScore_OLD_2026-07-08'
 import { fetchWaiverAuditTrail, type AuditEvent } from '@/lib/audit'
-import type { ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
 
 interface Participant { full_name: string; email: string }
 
@@ -30,9 +29,9 @@ interface WaiverClause {
   id: string; title: string; body: string; highlight?: boolean; required: boolean
 }
 
-// Activity label now comes from the activities table via the `activities`
-// prop (fetched once by RosterTab and passed down) instead of a local
-// hardcoded map.
+const LABELS: Record<string, string> = {
+  kayak:'Whitewater Kayaking', hike:'Canyon Hiking', atv:'ATV Tour', climb:'Rock Climbing',
+}
 
 const RISK_STYLES: Record<string, { badge:string; bar:string; label:string }> = {
   low:      { badge:'text-emerald-700 bg-emerald-50 border-emerald-200', bar:'bg-emerald-500', label:'Low Risk'      },
@@ -61,17 +60,13 @@ export default function WaiverDetail({
   row,
   index,
   isDemo,
-  activities,
   onClose,
 }: {
   row: WaiverDetailRow
   index: number
   isDemo: boolean
-  activities: ActivityRecord[]
   onClose: () => void
 }) {
-  const activity = activities.find(a => a.key === row.activity_key)
-  const activityLabel = activity?.displayName ?? row.activity_key
   const name   = row.participants?.full_name ?? 'Unknown'
   const email  = row.participants?.email ?? ''
   const time   = row.signed_at
@@ -82,10 +77,9 @@ export default function WaiverDetail({
   const answers = row.answers ?? {}
   const age     = ageFromDob(answers.dob)
   const risk    = calculateRiskScore({
-    activityKey:      row.activity_key,
-    activityBaseRisk: activity?.baseRiskScore,
-    isMinor:          row.is_minor,
-    healthStatus:     answers.healthStatus as string | string[] | undefined,
+    activityKey:     row.activity_key,
+    isMinor:         row.is_minor,
+    healthStatus:    answers.healthStatus as string | string[] | undefined,
     age,
     experienceLevel: answers.experienceLevel as string | undefined,
   })
@@ -129,7 +123,7 @@ export default function WaiverDetail({
         <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
           <div>
             <div className="font-semibold text-ink">{name}</div>
-            <div className="text-xs text-gray-400">{email} · {activityLabel} · Signed {time}</div>
+            <div className="text-xs text-gray-400">{email} · {LABELS[row.activity_key] ?? row.activity_key} · Signed {time}</div>
             <div className="font-mono text-xs text-gray-400 mt-0.5">{docId}</div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-ink text-lg leading-none">×</button>
@@ -197,7 +191,7 @@ export default function WaiverDetail({
                   <div className="text-xs font-semibold uppercase tracking-wider mb-0.5">⚡ Intelligent Risk Profile</div>
                   <div className={`text-xs font-medium ${rs.badge.split(' ')[0]}`}>{rs.label}</div>
                   {age !== undefined && (
-                    <div className="text-xs opacity-60 mt-0.5">Age {age} · {activityLabel}</div>
+                    <div className="text-xs opacity-60 mt-0.5">Age {age} · {LABELS[row.activity_key] ?? row.activity_key}</div>
                   )}
                 </div>
                 <div className={`font-mono text-3xl font-bold ${rs.badge.split(' ')[0]}`}>{risk.score}</div>

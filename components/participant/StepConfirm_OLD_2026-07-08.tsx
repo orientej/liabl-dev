@@ -1,7 +1,7 @@
-import { ParticipantAnswers } from '@/lib/document-engine_OLD_2026-07-08'
+import { ParticipantAnswers, ACTIVITY_LABELS } from '@/lib/document-engine_OLD_2026-07-08'
 import { IconVerified } from '@/components/icons'
-interface Props { answers:ParticipantAnswers; labels:Record<string,string>; onRestart:()=>void }
-export default function StepConfirm({ answers, labels, onRestart }: Props) {
+interface Props { answers:ParticipantAnswers; onRestart:()=>void }
+export default function StepConfirm({ answers, onRestart }: Props) {
   const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})
   const firstName=answers.fullName?.split(' ')[0]??'there'
   return (
@@ -12,7 +12,7 @@ export default function StepConfirm({ answers, labels, onRestart }: Props) {
       <h2 className="font-serif text-2xl mb-2" style={{letterSpacing:'-0.01em'}}>You&apos;re all set, {firstName}.</h2>
       <p className="text-gray-500 text-sm mb-6">Your signed waiver has been recorded and emailed to <span className="text-ink font-medium">{answers.email}</span>.</p>
       <div className="flex flex-wrap gap-2 justify-center mb-6">
-        {[`Signed at ${time}`,labels[answers.activityKey]??'Activity','ESIGN compliant','LIABL Pass ✦'].map(tag=>(
+        {[`Signed at ${time}`,ACTIVITY_LABELS[answers.activityKey]??'Activity','ESIGN compliant','LIABL Pass ✦'].map(tag=>(
           <span key={tag} className="bg-surface border border-black/10 text-xs px-3 py-1.5 rounded-full text-gray-500">{tag}</span>
         ))}
       </div>

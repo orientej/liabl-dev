@@ -3,11 +3,6 @@
 export interface RiskFactors {
   age?: number
   activityKey?: string
-  // v25 M4 — base risk per activity now comes from the activities table
-  // (base_risk_score), not a hardcoded map here. Callers that have already
-  // loaded activities (RosterTab, WaiverDetail) pass the looked-up value;
-  // if omitted, a neutral default is used rather than guessing.
-  activityBaseRisk?: number
   // v23 M1 fix #3 — healthStatus is now an array of conditions.
   // Accepts the legacy single-string shape too for backwards compatibility
   // with any waivers written before the migration runs.
@@ -20,8 +15,9 @@ export function calculateRiskScore(factors: RiskFactors): { score: number; level
   let score = 0
   const contributing: string[] = []
 
-  // Activity base risk — sourced from the activities table via the caller
-  if (factors.activityKey) { score += factors.activityBaseRisk ?? 20; contributing.push('Activity type') }
+  // Activity base risk
+  const activityRisk: Record<string, number> = { kayak:35, climb:30, atv:25, hike:15 }
+  if (factors.activityKey) { score += activityRisk[factors.activityKey] ?? 20; contributing.push('Activity type') }
 
   // v23 M1 fix #3 — Health (multi-condition aware)
   // Normalize to array regardless of input shape, then check each condition.

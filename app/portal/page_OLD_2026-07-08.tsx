@@ -3,12 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import Logo from '@/components/Logo'
 import PageNav from '@/components/PageNav'
-// Demo/investor page — fake WAIVERS data throughout, deliberately not
-// wired to the real activities table. Small local label map, matching
-// how the rest of this file's fabricated content is scoped.
-const ACTIVITY_LABELS: Record<string, string> = {
-  kayak: 'Whitewater Kayaking', hike: 'Canyon Hiking', atv: 'ATV Tour', climb: 'Rock Climbing',
-}
+import { ACTIVITY_LABELS } from '@/lib/document-engine_OLD_2026-07-08'
 
 type Tab='history'|'profile'|'health'
 

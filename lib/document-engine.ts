@@ -1,16 +1,44 @@
-export type ActivityKey = 'kayak' | 'hike' | 'atv' | 'climb'
+// lib/document-engine.ts
+// v25 Milestone 4 — data-driven activities, questions, and clauses.
+//
+// Replaces the hardcoded ActivityKey union, ACTIVITY_LABELS record,
+// activityClauses record, and the fixed "State of Arizona" governing-law
+// text with reads from the operators / activities / activity_questions /
+// activity_clauses tables (007_m4_activities.sql).
+//
+// Design: data-fetching (fetchEngineData) is kept separate from the pure
+// clause-assembly logic (generateClauses), so the assembly logic stays
+// synchronous, testable, and unchanged in shape from before — only where
+// the inputs come from has changed.
+//
+// One thing intentionally NOT moved into the data model: the minor/
+// guardian clause. It's driven by isMinor + guardianName from the
+// identity step, before any activity question is even shown — forcing it
+// into activity_questions would mean faking a global "are you a minor?"
+// question just to hang a clause off it. Kept special-cased here, same
+// as the migration's own comment says.
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+export type ActivityKey = string
 
 // v23 M1 fix #3 — multi-condition health disclosure
-// HealthStatus is now an array; a participant can disclose multiple conditions
+// HealthStatus is an array; a participant can disclose multiple conditions
 // (e.g., both cardiac AND injury). Empty array = no known conditions.
+//
+// NOTE: matching a disclosed condition to its clause currently works by
+// comparing this value directly against activity_clauses.key ('cardiac' /
+// 'injury') for the two seeded global health questions. That's a
+// deliberate simplification for this pass, preserving today's fixed
+// two-condition behavior — it doesn't yet generalize to arbitrary
+// operator-authored questions the way TemplateTab's UI implies. Full
+// answer-driven clause triggering (any question, any answer) is separate
+// follow-on work, not required to hit this milestone's exit criteria.
 export type HealthCondition = 'cardiac' | 'injury'
 export type HealthStatus = HealthCondition[]
 
 export interface ParticipantAnswers {
   fullName: string
-  // v23 M1 fix #4 — dob is an ISO date string (YYYY-MM-DD) when populated
-  // The schema migration changes the column type from text to date; the
-  // frontend now produces ISO format from a real date picker.
   dob: string
   email: string
   activityKey: ActivityKey
@@ -18,59 +46,180 @@ export interface ParticipantAnswers {
   isMinor: boolean
   guardianName?: string
 }
+
 export interface WaiverClause {
   id: string; title: string; body: string; highlight?: boolean; required: boolean
 }
-export const ACTIVITY_LABELS: Record<ActivityKey, string> = {
-  kayak:'Whitewater Kayaking', hike:'Canyon Hiking', atv:'ATV Tour', climb:'Rock Climbing',
-}
-function baseClauses(name: string, activity: string, date: string): WaiverClause[] {
-  return [
-    { id:'assumption', title:'Assumption of Risk', required:true, body:`I, ${name}, acknowledge that ${activity} involves inherent risks and hazards. I voluntarily assume full responsibility for all risks of loss, property damage, or personal injury that may be sustained as a result of my participation.` },
-    { id:'release', title:'Release of Liability', required:true, body:`I hereby release, waive, and discharge the operator from any and all liability, claims, and actions arising out of or related to any loss, damage, or injury sustained while participating in ${activity} on ${date}.` },
-    { id:'emergency', title:'Emergency Medical Authorization', required:true, body:`In the event of an emergency, I authorize operator staff to secure emergency medical services on my behalf. I accept financial responsibility for any emergency medical treatment rendered.` },
-    { id:'equipment', title:'Equipment & Safety Briefing', required:true, body:`I confirm receipt of a full safety briefing and proper fitting of all required safety equipment prior to activity commencement.` },
-    { id:'governing_law', title:'Governing Law', required:true, body:`This agreement shall be governed by the laws of the State of Arizona. Any disputes shall be resolved in the courts of Maricopa County, Arizona.` },
-  ]
-}
-const activityClauses: Record<ActivityKey, WaiverClause> = {
-  kayak: { id:'water', title:'Water Hazards Acknowledgment', highlight:true, required:true, body:'I understand that whitewater kayaking involves exposure to fast-moving water, submerged obstacles, and potential for capsize. I confirm I am a capable swimmer and acknowledge that Class III–IV rapids present serious risk of injury or death.' },
-  hike:  { id:'terrain', title:'Terrain & Environmental Hazards', highlight:true, required:true, body:'I understand that canyon hiking involves uneven terrain, extreme temperatures, flash flood risk, and limited emergency access. I confirm I am physically capable of completing the stated route.' },
-  atv:   { id:'vehicle', title:'Motor Vehicle Operation', highlight:true, required:true, body:'I understand that ATV operation involves risk of rollover, collision, and ejection. I confirm I will comply with all speed limits and route restrictions and will not operate under the influence of any substance.' },
-  climb: { id:'fall', title:'Fall & Equipment Hazards', highlight:true, required:true, body:'I understand that rock climbing involves risk of falls and equipment failure. I confirm I have received and understood the safety briefing for all anchor systems, belay devices, and harness equipment.' },
+
+export interface ActivityRecord {
+  id:            string
+  key:           string
+  displayName:   string
+  icon:          string
+  accentColor:   string
+  baseRiskScore: number
+  subtitle:      string | null
 }
 
-// v23 M1 fix #3 — generate one conditional clause per disclosed condition.
-// Order: cardiac clause first (more legally significant), then injury clause.
-// Both can be inserted simultaneously when the participant discloses both.
-const conditionClauses: Record<HealthCondition, (name: string) => WaiverClause> = {
-  cardiac: (name) => ({
-    id:'cardiac', title:'Physician Clearance — Cardiovascular Condition', highlight:true, required:true,
-    body:`${name} has disclosed a cardiovascular or respiratory condition. Participant confirms written physician clearance within 30 days. Participation without valid clearance voids this waiver.`,
-  }),
-  injury: (name) => ({
-    id:'injury', title:'Recent Injury Disclosure', highlight:true, required:true,
-    body:`${name} has disclosed a recent injury or surgery. Participant confirms physician clearance for physical activity of this intensity.`,
-  }),
+// Internal raw shape — not exported, callers only see ActivityRecord /
+// WaiverClause / EngineData.
+interface ClauseRow {
+  id: string
+  activityId: string | null
+  questionId: string | null
+  key: string
+  title: string
+  bodyTemplate: string
+  required: boolean
+  highlight: boolean
+  sortOrder: number
 }
 
-export function generateClauses(answers: ParticipantAnswers): WaiverClause[] {
-  const date = new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })
-  const clauses = [...baseClauses(answers.fullName, ACTIVITY_LABELS[answers.activityKey], date), activityClauses[answers.activityKey]]
+export interface EngineData {
+  operatorId:          string
+  operatorSlug:        string
+  operatorName:        string
+  governingLawState:   string
+  governingLawCounty:  string | null
+  activities:          ActivityRecord[]
+  clauses:             ClauseRow[]
+}
 
-  // v23 M1 fix #3 — iterate over the array, insert each clause after Emergency Medical (position 2)
-  // Insertion order preserved: cardiac before injury for consistent clause ordering.
-  const ordered: HealthCondition[] = ['cardiac', 'injury']
-  let insertAt = 2
-  for (const condition of ordered) {
-    if (answers.healthStatus?.includes(condition)) {
-      clauses.splice(insertAt, 0, conditionClauses[condition](answers.fullName))
-      insertAt++
-    }
+// Single hardcoded operator slug remains here — same status as
+// sessions.operator_id's 'desert-ridge' default. This is single-operator
+// V1, not multi-tenant; the whole point of this rewrite is that adding a
+// *second* operator becomes a data change, not a code change. Which
+// operator the app currently runs as is still a code-level concern until
+// Milestone 5 auth exists.
+const DEFAULT_OPERATOR_SLUG = 'desert-ridge'
+
+/**
+ * Fetches everything needed to render the activity picker and generate
+ * clauses for one operator. Call once (e.g. on flow mount) and reuse the
+ * result — this data changes rarely and there's no reason to refetch it
+ * per step.
+ */
+export async function fetchEngineData(
+  supabase: SupabaseClient,
+  operatorSlug: string = DEFAULT_OPERATOR_SLUG
+): Promise<EngineData> {
+  const { data: operator, error: operatorError } = await supabase
+    .from('operators')
+    .select('id, slug, name, governing_law_state, governing_law_county')
+    .eq('slug', operatorSlug)
+    .maybeSingle()
+
+  if (operatorError) throw new Error(`operator lookup: ${operatorError.message}`)
+  if (!operator) throw new Error(`no operator found for slug "${operatorSlug}"`)
+
+  const [{ data: activityRows, error: activitiesError }, { data: clauseRows, error: clausesError }] =
+    await Promise.all([
+      supabase
+        .from('activities')
+        .select('id, key, display_name, icon, accent_color, base_risk_score, subtitle')
+        .eq('operator_id', operator.id)
+        .eq('published', true)
+        .order('sort_order'),
+      supabase
+        .from('activity_clauses')
+        .select('id, activity_id, question_id, key, title, body_template, required, highlight, sort_order')
+        .eq('operator_id', operator.id)
+        .order('sort_order'),
+    ])
+
+  if (activitiesError) throw new Error(`activities fetch: ${activitiesError.message}`)
+  if (clausesError)    throw new Error(`activity_clauses fetch: ${clausesError.message}`)
+
+  const activities: ActivityRecord[] = (activityRows ?? []).map((r: any) => ({
+    id:            r.id,
+    key:           r.key,
+    displayName:   r.display_name,
+    icon:          r.icon,
+    accentColor:   r.accent_color,
+    baseRiskScore: r.base_risk_score,
+    subtitle:      r.subtitle ?? null,
+  }))
+
+  const clauses: ClauseRow[] = (clauseRows ?? []).map((r: any) => ({
+    id:           r.id,
+    activityId:   r.activity_id,
+    questionId:   r.question_id,
+    key:          r.key,
+    title:        r.title,
+    bodyTemplate: r.body_template,
+    required:     r.required,
+    highlight:    r.highlight,
+    sortOrder:    r.sort_order,
+  }))
+
+  return {
+    operatorId:         operator.id,
+    operatorSlug:       operator.slug,
+    operatorName:       operator.name,
+    governingLawState:  operator.governing_law_state,
+    governingLawCounty: operator.governing_law_county ?? null,
+    activities,
+    clauses,
   }
+}
+
+/** Builds a { key: displayName } map — the same shape ACTIVITY_LABELS used
+ * to be, for components that just want display copy and don't need the
+ * full ActivityRecord (StepDocument, StepConfirm, StepHealth). */
+export function buildActivityLabels(data: EngineData): Record<string, string> {
+  return Object.fromEntries(data.activities.map(a => [a.key, a.displayName]))
+}
+
+/** Single-lookup convenience for components that only hold an
+ * ActivityRecord[] (not full EngineData) — e.g. IncidentTab, analytics.ts. */
+export function activityLabel(activities: ActivityRecord[], key: string): string {
+  return activities.find(a => a.key === key)?.displayName ?? key
+}
+
+function renderTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => vars[key] ?? '')
+}
+
+export function generateClauses(data: EngineData, answers: ParticipantAnswers): WaiverClause[] {
+  const activity = data.activities.find(a => a.key === answers.activityKey)
+  if (!activity) {
+    // Fail loud rather than silently rendering a waiver against the wrong
+    // (or no) activity — same "throw a specific message" philosophy as
+    // the M1 session-resolution fix.
+    throw new Error(`generateClauses: no activity found for key "${answers.activityKey}"`)
+  }
+
+  const date = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const vars: Record<string, string> = {
+    name:                 answers.fullName,
+    activity:             activity.displayName,
+    date,
+    governing_law_state:  data.governingLawState,
+    governing_law_county: data.governingLawCounty ?? '',
+  }
+
+  const applicable = data.clauses.filter(c => {
+    if (c.activityId !== null && c.activityId !== activity.id) return false        // belongs to a different activity
+    if (c.questionId !== null && !answers.healthStatus?.includes(c.key as HealthCondition)) return false // conditional, not triggered
+    return true
+  })
+
+  const clauses: WaiverClause[] = applicable
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(c => ({
+      id:        c.key,
+      title:     c.title,
+      body:      renderTemplate(c.bodyTemplate, vars),
+      required:  c.required,
+      highlight: c.highlight,
+    }))
 
   if (answers.isMinor && answers.guardianName) {
-    clauses.push({ id:'minor', title:'Guardian Authorization', highlight:true, required:true, body:`${answers.guardianName} grants permission for minor ${answers.fullName} to participate and agrees to all terms of this waiver on their behalf.` })
+    clauses.push({
+      id: 'minor', title: 'Guardian Authorization', highlight: true, required: true,
+      body: `${answers.guardianName} grants permission for minor ${answers.fullName} to participate and agrees to all terms of this waiver on their behalf.`,
+    })
   }
+
   return clauses
 }

@@ -5,7 +5,6 @@ import {
   searchWaiversByParticipant,
   type IncidentRecord, type IncidentSeverity, type IncidentStatus, type WaiverSearchResult,
 } from '@/lib/incidents'
-import { fetchEngineData, activityLabel, type ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
 
 const SEV_STYLES: Record<string, string> = {
   minor:    'bg-blue-50 text-blue-700 border-blue-200',
@@ -21,8 +20,9 @@ const STATUS_STYLES: Record<IncidentStatus, string> = {
 const STATUS_LABELS: Record<IncidentStatus, string> = {
   open:'Open', notified:'Carrier notified', investigating:'Under investigation', closed:'Closed',
 }
-// Activity labels now come from the activities table (fetched below) via
-// the shared activityLabel() helper, instead of a hardcoded map here.
+const ACTIVITY_LABELS: Record<string, string> = {
+  kayak:'Whitewater Kayaking', hike:'Canyon Hiking', atv:'ATV Tour', climb:'Rock Climbing',
+}
 
 export default function IncidentTab() {
   const [incidents,  setIncidents]  = useState<IncidentRecord[]>([])
@@ -30,19 +30,9 @@ export default function IncidentTab() {
   const [loadError,   setLoadError]  = useState<string | null>(null)
   const [selected,    setSelected]   = useState<IncidentRecord | null>(null)
   const [creating,    setCreating]   = useState(false)
-  const [activities,  setActivities] = useState<ActivityRecord[]>([])
 
   useEffect(() => {
     refresh()
-    ;(async () => {
-      try {
-        const { createClient } = await import('@/lib/supabase')
-        const engineData = await fetchEngineData(createClient())
-        setActivities(engineData.activities)
-      } catch (e) {
-        console.error('[IncidentTab] activities load failed:', e)
-      }
-    })()
   }, [])
 
   async function refresh() {
@@ -72,7 +62,6 @@ export default function IncidentTab() {
     return (
       <IncidentDetail
         incident={selected}
-        activities={activities}
         onBack={() => setSelected(null)}
         onUpdated={handleUpdated}
       />
@@ -94,7 +83,6 @@ export default function IncidentTab() {
 
       {creating && (
         <CreateIncidentForm
-          activities={activities}
           onCancel={() => setCreating(false)}
           onCreated={handleCreated}
         />
@@ -144,7 +132,7 @@ export default function IncidentTab() {
                   )}
                 </div>
                 <div className="text-xs text-gray-400">
-                  {inc.activity ? activityLabel(activities, inc.activity) : '—'} · {new Date(inc.createdAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} · {inc.ref}
+                  {inc.activity ? (ACTIVITY_LABELS[inc.activity] ?? inc.activity) : '—'} · {new Date(inc.createdAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} · {inc.ref}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -160,25 +148,17 @@ export default function IncidentTab() {
 }
 
 // ── Create form, with waiver search-or-free-text ──────────────────
-function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: ActivityRecord[]; onCancel: () => void; onCreated: (i: IncidentRecord) => void }) {
+function CreateIncidentForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: (i: IncidentRecord) => void }) {
   const [mode, setMode] = useState<'search' | 'manual'>('search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<WaiverSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [linkedWaiver, setLinkedWaiver] = useState<WaiverSearchResult | null>(null)
 
-  const [form, setForm] = useState({ participantName: '', activity: activities[0]?.key ?? '', severity: 'minor' as IncidentSeverity, description: '' })
+  const [form, setForm] = useState({ participantName: '', activity: 'kayak', severity: 'minor' as IncidentSeverity, description: '' })
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState<IncidentRecord | null>(null)
-
-  // If activities load in after this form is already open, backfill the
-  // default so the select isn't stuck on an empty value.
-  useEffect(() => {
-    if (!form.activity && activities.length > 0) {
-      setForm(f => ({ ...f, activity: activities[0].key }))
-    }
-  }, [activities]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runSearch = useCallback(async (q: string) => {
     setQuery(q)
@@ -250,7 +230,7 @@ function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: A
                 <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
                   <div className="text-sm text-emerald-800">
                     <span className="font-medium">{linkedWaiver.participantName}</span>
-                    <span className="text-xs text-emerald-600 ml-2">{activityLabel(activities, linkedWaiver.activityKey)}</span>
+                    <span className="text-xs text-emerald-600 ml-2">{ACTIVITY_LABELS[linkedWaiver.activityKey] ?? linkedWaiver.activityKey}</span>
                   </div>
                   <button onClick={() => setLinkedWaiver(null)} className="text-xs text-emerald-700 underline">Change</button>
                 </div>
@@ -264,7 +244,7 @@ function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: A
                         <button key={r.waiverId} onClick={() => selectWaiver(r)}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-surface border-b border-black/5 last:border-0">
                           <span className="font-medium text-ink">{r.participantName}</span>
-                          <span className="text-xs text-gray-400 ml-2">{activityLabel(activities, r.activityKey)}</span>
+                          <span className="text-xs text-gray-400 ml-2">{ACTIVITY_LABELS[r.activityKey] ?? r.activityKey}</span>
                         </button>
                       ))}
                     </div>
@@ -285,7 +265,7 @@ function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: A
               <label className="block text-xs text-gray-500 mb-1">Activity</label>
               <select className="form-input" value={form.activity} disabled={mode==='search' && !!linkedWaiver}
                 onChange={e => setForm(f => ({...f, activity:e.target.value}))}>
-                {activities.map(a => <option key={a.key} value={a.key}>{a.displayName}</option>)}
+                <option value="kayak">Whitewater Kayaking</option><option value="hike">Canyon Hiking</option><option value="atv">ATV Tour</option><option value="climb">Rock Climbing</option>
               </select>
             </div>
             <div>
@@ -326,7 +306,7 @@ function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: A
 }
 
 // ── Detail view ─────────────────────────────────────────────────
-function IncidentDetail({ incident, activities, onBack, onUpdated }: { incident: IncidentRecord; activities: ActivityRecord[]; onBack: () => void; onUpdated: (i: IncidentRecord) => void }) {
+function IncidentDetail({ incident, onBack, onUpdated }: { incident: IncidentRecord; onBack: () => void; onUpdated: (i: IncidentRecord) => void }) {
   const [notifying, setNotifying] = useState(false)
   const [notifiedBy, setNotifiedBy] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
@@ -369,7 +349,7 @@ function IncidentDetail({ incident, activities, onBack, onUpdated }: { incident:
           <div>
             <div className="font-mono text-xs text-gray-400 mb-1">{incident.ref}</div>
             <h2 className="font-serif text-xl" style={{ letterSpacing:'-0.01em' }}>{incident.participantName}</h2>
-            <div className="text-sm text-gray-400">{incident.activity ? activityLabel(activities, incident.activity) : '—'} · {new Date(incident.createdAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}</div>
+            <div className="text-sm text-gray-400">{incident.activity ? (ACTIVITY_LABELS[incident.activity] ?? incident.activity) : '—'} · {new Date(incident.createdAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}</div>
           </div>
           <div className="flex gap-2 flex-wrap">
             <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${SEV_STYLES[incident.severity]}`}>

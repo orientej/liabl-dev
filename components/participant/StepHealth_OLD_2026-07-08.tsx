@@ -1,12 +1,11 @@
 'use client'
 import { useState } from 'react'
-import { HealthCondition, HealthStatus } from '@/lib/document-engine_OLD_2026-07-08'
+import { HealthCondition, HealthStatus, ACTIVITY_LABELS } from '@/lib/document-engine_OLD_2026-07-08'
 
 interface Props {
   onNext:(v:{healthStatus:HealthStatus})=>void
   onBack:()=>void
   answers:Partial<{activityKey:string}>
-  labels:Record<string,string>
 }
 
 // v23 M1 fix #3 — multi-condition health disclosure
@@ -17,10 +16,10 @@ const CONDITIONS: { value: HealthCondition; label: string; warning: string }[] =
   { value:'injury',  label:'Recent injury or surgery',         warning:'An injury disclosure clause will be added to your waiver.' },
 ]
 
-export default function StepHealth({ onNext, onBack, answers, labels }: Props) {
+export default function StepHealth({ onNext, onBack, answers }: Props) {
   const [selected, setSelected] = useState<Set<HealthCondition>>(new Set())
   const [noneSelected, setNoneSelected] = useState(false)
-  const actLabel = answers.activityKey ? (labels[answers.activityKey] ?? 'your activity') : 'your activity'
+  const actLabel = answers.activityKey ? ACTIVITY_LABELS[answers.activityKey as keyof typeof ACTIVITY_LABELS] : 'your activity'
 
   function toggle(condition: HealthCondition) {
     const next = new Set(selected)

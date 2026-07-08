@@ -1,16 +1,15 @@
-import { WaiverClause, ParticipantAnswers } from '@/lib/document-engine_OLD_2026-07-08'
+import { WaiverClause, ParticipantAnswers, ACTIVITY_LABELS } from '@/lib/document-engine_OLD_2026-07-08'
 import { IconAIActive } from '@/components/icons'
 
 interface Props {
   clauses:  WaiverClause[]
   answers:  ParticipantAnswers
-  labels:   Record<string, string>
   onNext:   ()=>void
   onBack:   ()=>void
 }
 
-export default function StepDocument({ clauses, answers, labels, onNext, onBack }: Props) {
-  const actLabel    = labels[answers.activityKey] ?? 'Activity'
+export default function StepDocument({ clauses, answers, onNext, onBack }: Props) {
+  const actLabel    = ACTIVITY_LABELS[answers.activityKey] ?? 'Activity'
   const date        = new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' })
   const highlighted = clauses.filter(c => c.highlight).length
 

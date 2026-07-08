@@ -18,7 +18,6 @@
 //   to 1000 rows) and formats them client-side — no server route needed.
 
 import { createClient } from '@/lib/supabase'
-import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
 
 export type Period = 'week' | 'month' | 'quarter'
 
@@ -83,8 +82,12 @@ export interface AnalyticsData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Activity label/color now sourced from the activities table (fetched in
-// fetchAnalytics / fetchWaiverExportData below) instead of hardcoded maps.
+const ACTIVITY_LABELS: Record<string, string> = {
+  kayak: 'Kayaking', hike: 'Hiking', atv: 'ATV', climb: 'Climbing',
+}
+const ACTIVITY_COLORS: Record<string, string> = {
+  kayak: '#4B2ACF', hike: '#818CF8', atv: '#A78BFA', climb: '#DDD6FE',
+}
 const RISK_COLORS: Record<string, string> = {
   low: '#059669', moderate: '#2563EB', elevated: '#D97706', high: '#DC2626',
 }
@@ -122,11 +125,10 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
   const supabase = createClient()
   const range    = getPeriodRange(period)
 
-  // All five fetches run in parallel: current period, prior period,
-  // trend (always last 30 days regardless of period selector), age
-  // (requires participant dob — fetched separately with join), and the
-  // operator's activities (for labels/colors on the activity split chart).
-  const [currentRows, priorRows, trendRows, participantRows, activities] = await Promise.all([
+  // All four data fetches run in parallel: current period, prior period,
+  // trend (always last 30 days regardless of period selector), and age
+  // (requires participant dob — fetched separately with join).
+  const [currentRows, priorRows, trendRows, participantRows] = await Promise.all([
 
     // Current period — signed waivers with activity + risk data
     supabase
@@ -161,9 +163,6 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
       .gte('created_at', range.start.toISOString())
       .lte('created_at', range.end.toISOString())
       .then(r => r.data ?? []),
-
-    // Operator's activities — for labels/colors in the activity split chart
-    fetchEngineData(supabase).then(d => d.activities).catch(() => [] as ActivityRecord[]),
   ])
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
@@ -216,14 +215,11 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
   })
   const activitySplit: ActivitySlice[] = Object.entries(activityCounts)
     .sort(([,a],[,b]) => b - a)
-    .map(([key, value]) => {
-      const activity = (activities as ActivityRecord[]).find(a => a.key === key)
-      return {
-        label: activity?.displayName ?? key,
-        value,
-        color: activity?.accentColor ?? '#C4B5FD',
-      }
-    })
+    .map(([key, value]) => ({
+      label: ACTIVITY_LABELS[key] ?? key,
+      value,
+      color: ACTIVITY_COLORS[key] ?? '#C4B5FD',
+    }))
 
   // ── Age distribution bar ───────────────────────────────────────────────────
 
@@ -298,7 +294,6 @@ export interface WaiverExportRow {
 
 export async function fetchWaiverExportData(): Promise<WaiverExportRow[]> {
   const supabase = createClient()
-  const activities = await fetchEngineData(supabase).then(d => d.activities).catch(() => [] as ActivityRecord[])
   const { data, error } = await supabase
     .from('waivers')
     .select(`
@@ -324,7 +319,7 @@ export async function fetchWaiverExportData(): Promise<WaiverExportRow[]> {
       participantName: (participant?.full_name as string) ?? '',
       email:           (participant?.email    as string) ?? '',
       dob:             (answers.dob           as string) ?? '',
-      activity:        activities.find(a => a.key === row.activity_key)?.displayName ?? (row.activity_key as string),
+      activity:        ACTIVITY_LABELS[row.activity_key as string] ?? (row.activity_key as string),
       signedAt:        row.signed_at as string,
       isMinor:         row.is_minor ? 'Yes' : 'No',
       guardianName:    (row.guardian_name     as string) ?? '',

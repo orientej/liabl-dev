@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels } from '@/lib/document-engine_OLD_2026-07-08'
+import { ParticipantAnswers, WaiverClause, generateClauses, ACTIVITY_LABELS } from '@/lib/document-engine_OLD_2026-07-08'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
 import Logo           from '@/components/Logo'
@@ -37,10 +37,6 @@ export default function ParticipantFlow() {
   const [clauses,      setClauses]      = useState<WaiverClause[]>([])
   const [saveState,    setSaveState]    = useState<SaveState>({ kind: 'idle' })
   const [pendingSignature, setPendingSignature] = useState<string | null>(null)
-  const [engineData,   setEngineData]   = useState<EngineData | null>(null)
-  const [engineError,  setEngineError]  = useState<string | null>(null)
-
-  const labels = engineData ? buildActivityLabels(engineData) : {}
 
   // Resolved session UUID — available once the flow has touched the DB.
   // Stored in a ref (not state) because it's infrastructure, not UI state;
@@ -79,23 +75,6 @@ export default function ParticipantFlow() {
       })
     }
     onFlowStart()
-
-    // v25 M4 — fetch this operator's activities/clauses once at flow
-    // start, so they're ready by the time the participant reaches the
-    // Activity step. Single-operator V1 still, so no session->operator
-    // resolution here yet (fetchEngineData defaults to the one operator
-    // that exists) — that becomes necessary once a second operator does.
-    async function loadEngineData() {
-      try {
-        const { createClient } = await import('@/lib/supabase')
-        const data = await fetchEngineData(createClient())
-        setEngineData(data)
-      } catch (err) {
-        console.error('[ParticipantFlow] engine data load failed:', err)
-        setEngineError(err instanceof Error ? err.message : 'Failed to load activities')
-      }
-    }
-    loadEngineData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function next(update?: Partial<ParticipantAnswers>) {
@@ -103,29 +82,22 @@ export default function ParticipantFlow() {
     setAnswers(merged)
 
     if (merged.activityKey && merged.fullName) {
-      if (!engineData) {
-        // Shouldn't normally happen — engine data loads at flow start,
-        // well before the participant can reach this point — but fail
-        // safe rather than crash on a slow network.
-        console.error('[next] engine data not loaded yet; cannot generate clauses')
-      } else {
-        const generated = generateClauses(engineData, merged as ParticipantAnswers)
-        setClauses(generated)
+      const generated = generateClauses(merged as ParticipantAnswers)
+      setClauses(generated)
 
-        // ── Event 2: waiver.generated ───────────────────────────────────────
-        // Fires when the adaptive document is assembled for the first time.
-        // Fire-and-forget — don't block the UI transition.
-        logEvent({
-          eventType: 'waiver.generated',
-          sessionId: resolvedSessionIdRef.current,
-          metadata: {
-            activityKey:   merged.activityKey,
-            clauseCount:   generated.length,
-            adaptiveCount: generated.filter(c => c.highlight).length,
-          },
-          ipAddress: ipAddressRef.current,
-        })
-      }
+      // ── Event 2: waiver.generated ───────────────────────────────────────
+      // Fires when the adaptive document is assembled for the first time.
+      // Fire-and-forget — don't block the UI transition.
+      logEvent({
+        eventType: 'waiver.generated',
+        sessionId: resolvedSessionIdRef.current,
+        metadata: {
+          activityKey:   merged.activityKey,
+          clauseCount:   generated.length,
+          adaptiveCount: generated.filter(c => c.highlight).length,
+        },
+        ipAddress: ipAddressRef.current,
+      })
     }
 
     const nextStep = step === 3 && !merged.isMinor ? 5 : step + 1
@@ -239,7 +211,7 @@ export default function ParticipantFlow() {
           email:         full.email,
           dob:           full.dob,
           activityKey:   full.activityKey,
-          activityLabel: labels[full.activityKey] ?? full.activityKey,
+          activityLabel: ACTIVITY_LABELS[full.activityKey] ?? full.activityKey,
           signedAt,
           ipAddress:     ipAddressRef.current,
           isMinor:       full.isMinor ?? false,
@@ -334,8 +306,8 @@ export default function ParticipantFlow() {
           <div className="animate-fade-up" key={step}>
             {step === 0 && <StepEntry     onNext={() => next()} />}
             {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} />}
-            {step === 2 && <StepActivity  activities={engineData?.activities ?? []} onNext={(v) => next(v)} onBack={prev} />}
-            {step === 3 && <StepHealth    onNext={(v) => next(v)} onBack={prev} answers={answers} labels={labels} />}
+            {step === 2 && <StepActivity  onNext={(v) => next(v)} onBack={prev} />}
+            {step === 3 && <StepHealth    onNext={(v) => next(v)} onBack={prev} answers={answers} />}
             {step === 4 && isMinor && (
               <StepGuardian minorName={answers.fullName ?? 'Minor'}
                 onNext={(v) => { setAnswers(a => ({...a,...v})); setStep(5) }}
@@ -347,7 +319,6 @@ export default function ParticipantFlow() {
               <StepDocument
                 clauses={clauses}
                 answers={answers as ParticipantAnswers}
-                labels={labels}
                 onNext={onDocumentProceed}
                 onBack={prev}
               />
@@ -391,7 +362,7 @@ export default function ParticipantFlow() {
                 )}
               </>
             )}
-            {step === 7 && <StepConfirm answers={answers as ParticipantAnswers} labels={labels} onRestart={restart} />}
+            {step === 7 && <StepConfirm answers={answers as ParticipantAnswers} onRestart={restart} />}
           </div>
         </div>
       </div>

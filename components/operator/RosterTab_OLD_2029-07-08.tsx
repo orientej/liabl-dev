@@ -7,6 +7,8 @@ import WaiverDetail, { type WaiverDetailRow } from '@/components/operator/Waiver
 
 interface Participant { full_name: string; email: string }
 
+interface SessionInfo { session_ref: string | null; session_time: string | null }
+
 interface WaiverRow {
   id: string
   session_id: string | null
@@ -19,6 +21,7 @@ interface WaiverRow {
   answers: Record<string, unknown> | null
   clauses: WaiverClause[] | null
   participants: Participant | null
+  sessions: SessionInfo | null
 }
 
 interface WaiverClause {
@@ -35,12 +38,16 @@ type Filter = 'all' | 'signed' | 'pending'
 // Visually flagged as sample data — never silently mixed with real rows.
 
 const DEMO: WaiverRow[] = [
-  { id:'demo-1', session_id:null, signed_at:'2026-05-26T08:42:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Jordan Rivera', email:'j@email.com' } },
-  { id:'demo-2', session_id:null, signed_at:'2026-05-26T08:51:00Z', activity_key:'hike',   is_minor:true,  ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Mia Chen',      email:'m@email.com' } },
-  { id:'demo-3', session_id:null, signed_at:'2026-05-26T08:53:00Z', activity_key:'atv',    is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Tyler Brooks',  email:'t@email.com' } },
-  { id:'demo-4', session_id:null, signed_at:null,                   activity_key:'climb',  is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Sasha Kim',     email:'s@email.com' } },
-  { id:'demo-5', session_id:null, signed_at:'2026-05-26T08:58:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Omar Hassan',   email:'o@email.com' } },
+  { id:'demo-1', session_id:null, signed_at:'2026-05-26T08:42:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Jordan Rivera', email:'j@email.com' }, sessions:null },
+  { id:'demo-2', session_id:null, signed_at:'2026-05-26T08:51:00Z', activity_key:'hike',   is_minor:true,  ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Mia Chen',      email:'m@email.com' }, sessions:null },
+  { id:'demo-3', session_id:null, signed_at:'2026-05-26T08:53:00Z', activity_key:'atv',    is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Tyler Brooks',  email:'t@email.com' }, sessions:null },
+  { id:'demo-4', session_id:null, signed_at:null,                   activity_key:'climb',  is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Sasha Kim',     email:'s@email.com' }, sessions:null },
+  { id:'demo-5', session_id:null, signed_at:'2026-05-26T08:58:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_url:null, answers:null, clauses:null, participants:{ full_name:'Omar Hassan',   email:'o@email.com' }, sessions:null },
 ]
+
+// Fallback shown only when real waivers exist but none carry session data yet
+// (e.g. rows written before the sessions table was linked in).
+const DEMO_SESSION_LABEL = 'AM-04 · 9:00 AM'
 
 // ─── Display constants ────────────────────────────────────────────────────────
 
@@ -82,6 +89,7 @@ export default function RosterTab() {
   const [filter,       setFilter]       = useState<Filter>('all')
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [loading,      setLoading]      = useState(true)
+  const [sessionLabel, setSessionLabel] = useState<string>(DEMO_SESSION_LABEL)
 
   useEffect(() => {
     async function load() {
@@ -93,7 +101,7 @@ export default function RosterTab() {
         // can render real data without a second per-row fetch on expand.
         const { data } = await supabase
           .from('waivers')
-          .select('id, session_id, signed_at, activity_key, is_minor, ip_address, document_hash, pdf_url, answers, clauses, participants(full_name, email)')
+          .select('id, session_id, signed_at, activity_key, is_minor, ip_address, document_hash, pdf_url, answers, clauses, participants(full_name, email), sessions(session_ref, session_time)')
           .order('created_at', { ascending: true })
           .limit(50)
 
@@ -112,9 +120,24 @@ export default function RosterTab() {
             participants:  Array.isArray(row.participants)
               ? (row.participants[0] as Participant) ?? null
               : row.participants as Participant | null,
+            sessions:      Array.isArray(row.sessions)
+              ? (row.sessions[0] as SessionInfo) ?? null
+              : row.sessions as SessionInfo | null,
           }))
           setRoster(rows)
           setIsDemo(false)
+
+          // Single-session view for now (no session switcher yet — that's
+          // separate "operator session management" scope). Use the most
+          // recent row's linked session as the header. If real waivers
+          // exist but none carry session data, fall back to the label
+          // rather than silently showing nothing.
+          const withSession = [...rows].reverse().find(r => r.sessions?.session_ref)
+          setSessionLabel(
+            withSession?.sessions
+              ? `${withSession.sessions.session_ref}${withSession.sessions.session_time ? ' · ' + withSession.sessions.session_time : ''}`
+              : DEMO_SESSION_LABEL
+          )
 
           // Returning participant: find emails that appear in >1 signed waiver.
           // Single-operator scope — not the cross-operator LIABL Pass graph.
@@ -158,7 +181,7 @@ export default function RosterTab() {
           <h1 className="font-serif text-2xl" style={{ letterSpacing:'-0.01em' }}>Check-in Roster</h1>
           <p className="text-sm text-gray-400 mt-1">{new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}</p>
         </div>
-        <span className="bg-brand/10 text-brand border border-brand/20 text-xs font-medium px-3 py-1.5 rounded-full">AM-04 · 9:00 AM</span>
+        <span className="bg-brand/10 text-brand border border-brand/20 text-xs font-medium px-3 py-1.5 rounded-full">{sessionLabel}</span>
       </div>
 
       {/* Demo-data banner — shown whenever real data couldn't be loaded */}
