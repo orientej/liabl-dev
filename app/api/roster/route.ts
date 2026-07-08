@@ -1,4 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+// This route always fetches live data and reads nothing from the request
+// (no headers, cookies, or params) — with no dynamic signal to key off,
+// Next's App Router can otherwise try to statically prerender it at
+// build time, which fails since there's no live network/env context
+// available then. Force it to run per-request instead.
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest) {
   const { createClient } = await import('@/lib/supabase')
   const supabase = createClient()
