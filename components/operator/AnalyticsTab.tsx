@@ -4,7 +4,7 @@ import {
   fetchAnalytics, fetchWaiverExportData, exportToCsv,
   formatDelta, getPeriodRange,
   type Period, type AnalyticsData,
-} from '@/lib/analytics_OLD_2026-07-08'
+} from '@/lib/analytics'
 
 // ── Chart components — unchanged from original ────────────────────────────────
 

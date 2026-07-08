@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels } from '@/lib/document-engine_OLD_2026-07-08'
+import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels } from '@/lib/document-engine'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
 import Logo           from '@/components/Logo'

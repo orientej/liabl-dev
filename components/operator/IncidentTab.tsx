@@ -5,7 +5,7 @@ import {
   searchWaiversByParticipant,
   type IncidentRecord, type IncidentSeverity, type IncidentStatus, type WaiverSearchResult,
 } from '@/lib/incidents'
-import { fetchEngineData, activityLabel, type ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
+import { fetchEngineData, activityLabel, type ActivityRecord } from '@/lib/document-engine'
 
 const SEV_STYLES: Record<string, string> = {
   minor:    'bg-blue-50 text-blue-700 border-blue-200',

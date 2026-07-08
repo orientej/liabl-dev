@@ -6,9 +6,9 @@
 
 'use client'
 import { useState, useEffect } from 'react'
-import { calculateRiskScore } from '@/components/RiskScore_OLD_2026-07-08'
+import { calculateRiskScore } from '@/components/RiskScore'
 import { fetchWaiverAuditTrail, type AuditEvent } from '@/lib/audit'
-import type { ActivityRecord } from '@/lib/document-engine_OLD_2026-07-08'
+import type { ActivityRecord } from '@/lib/document-engine'
 
 interface Participant { full_name: string; email: string }
 
