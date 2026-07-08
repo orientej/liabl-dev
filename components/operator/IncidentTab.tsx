@@ -31,6 +31,7 @@ export default function IncidentTab() {
   const [selected,    setSelected]   = useState<IncidentRecord | null>(null)
   const [creating,    setCreating]   = useState(false)
   const [activities,  setActivities] = useState<ActivityRecord[]>([])
+  const [operatorId,  setOperatorId] = useState<string | null>(null)
 
   useEffect(() => {
     refresh()
@@ -39,6 +40,7 @@ export default function IncidentTab() {
         const { createClient } = await import('@/lib/supabase')
         const engineData = await fetchEngineData(createClient())
         setActivities(engineData.activities)
+        setOperatorId(engineData.operatorId)
       } catch (e) {
         console.error('[IncidentTab] activities load failed:', e)
       }
@@ -95,6 +97,7 @@ export default function IncidentTab() {
       {creating && (
         <CreateIncidentForm
           activities={activities}
+          operatorId={operatorId}
           onCancel={() => setCreating(false)}
           onCreated={handleCreated}
         />
@@ -160,7 +163,7 @@ export default function IncidentTab() {
 }
 
 // ── Create form, with waiver search-or-free-text ──────────────────
-function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: ActivityRecord[]; onCancel: () => void; onCreated: (i: IncidentRecord) => void }) {
+function CreateIncidentForm({ activities, operatorId, onCancel, onCreated }: { activities: ActivityRecord[]; operatorId: string | null; onCancel: () => void; onCreated: (i: IncidentRecord) => void }) {
   const [mode, setMode] = useState<'search' | 'manual'>('search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<WaiverSearchResult[]>([])
@@ -200,10 +203,12 @@ function CreateIncidentForm({ activities, onCancel, onCreated }: { activities: A
 
   async function submit() {
     if (!effectiveName.trim() || !form.description.trim()) return
+    if (!operatorId) { setSubmitError('Still loading your organization — try again in a moment.'); return }
     setSubmitting(true)
     setSubmitError(null)
     try {
       const incident = await createIncident({
+        operatorId,
         waiverId: mode === 'search' ? (linkedWaiver?.waiverId ?? null) : null,
         participantName: effectiveName.trim(),
         activity: form.activity,

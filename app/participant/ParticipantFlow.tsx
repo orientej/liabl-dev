@@ -74,6 +74,9 @@ export default function ParticipantFlow() {
       await logEvent({
         eventType: 'session.started',
         sessionId: null,   // no FK yet — raw ID in metadata
+        operatorId: null,  // genuinely unknown at this point — engine data
+                           // hasn't loaded yet (fetched in parallel below,
+                           // not before, so timing here stays accurate)
         metadata:  { sessionParam: sessionId },
         ipAddress: ipAddressRef.current,
       })
@@ -118,6 +121,7 @@ export default function ParticipantFlow() {
         logEvent({
           eventType: 'waiver.generated',
           sessionId: resolvedSessionIdRef.current,
+          operatorId: engineData.operatorId,
           metadata: {
             activityKey:   merged.activityKey,
             clauseCount:   generated.length,
@@ -143,6 +147,7 @@ export default function ParticipantFlow() {
     logEvent({
       eventType: 'document.viewed',
       sessionId: resolvedSessionIdRef.current,
+      operatorId: engineData?.operatorId ?? null,
       metadata: {
         clauseCount:   clauses.length,
         adaptiveCount: clauses.filter(c => c.highlight).length,
@@ -154,6 +159,15 @@ export default function ParticipantFlow() {
 
   async function attemptSave(sigData: string): Promise<void> {
     setSaveState({ kind: 'saving' })
+
+    if (!engineData) {
+      // Shouldn't happen in practice — see the same guard in next() — but
+      // the waiver insert now requires operator_id, so this can't be a
+      // soft warning here the way it is in next(); there's nothing valid
+      // to save without it.
+      setSaveState({ kind: 'retryable_error', attempts: 1, lastError: 'Activity data not loaded yet' })
+      return
+    }
 
     try {
       const { createClient } = await import('@/lib/supabase')
@@ -195,12 +209,22 @@ export default function ParticipantFlow() {
       resolvedSessionIdRef.current = resolvedSessionId
 
       // 3. Insert waiver
-      const signedAt = new Date().toISOString()
-      const { data: waiver, error: waiverError } = await supabase
+      // v25 M5 RLS — waiverId is generated client-side and the insert
+      // deliberately doesn't .select() the row back. Supabase/PostgREST's
+      // insert-then-select pattern requires a SELECT policy to return the
+      // row, and waivers intentionally has none for anonymous requests —
+      // giving participants read access to the table would mean anyone
+      // could read anyone's health data via a direct API call. Since we
+      // already know the ID we chose, there's nothing to read back.
+      const waiverId  = crypto.randomUUID()
+      const signedAt  = new Date().toISOString()
+      const { error: waiverError } = await supabase
         .from('waivers')
         .insert({
+          id:             waiverId,
           session_id:     resolvedSessionId,
           participant_id: participant.id,
+          operator_id:    engineData.operatorId,
           activity_key:   full.activityKey,
           answers:        full,
           clauses,
@@ -210,11 +234,8 @@ export default function ParticipantFlow() {
           guardian_name:  full.guardianName ?? null,
           ip_address:     ipAddressRef.current,
         })
-        .select('id')
-        .single()
 
       if (waiverError) throw new Error(`waiver insert: ${waiverError.message}`)
-      if (!waiver) throw new Error('waiver insert returned no data')
 
       // ── Event 4: waiver.signed ────────────────────────────────────────────
       // First event with a real waiver_id FK. Awaited so the timestamp is
@@ -222,7 +243,8 @@ export default function ParticipantFlow() {
       await logEvent({
         eventType: 'waiver.signed',
         sessionId: resolvedSessionId,
-        waiverId:  waiver.id,
+        waiverId,
+        operatorId: engineData.operatorId,
         metadata: {
           activityKey:  full.activityKey,
           isMinor:      full.isMinor ?? false,
@@ -234,7 +256,7 @@ export default function ParticipantFlow() {
       // 5. Seal the document
       try {
         const sealResult = await sealWaiver(supabase, {
-          waiverId:      waiver.id,
+          waiverId,
           fullName:      full.fullName,
           email:         full.email,
           dob:           full.dob,
@@ -251,7 +273,7 @@ export default function ParticipantFlow() {
         const { error: hashWriteError } = await supabase
           .from('waivers')
           .update({ document_hash: sealResult.documentHash, pdf_url: sealResult.pdfUrl })
-          .eq('id', waiver.id)
+          .eq('id', waiverId)
 
         if (hashWriteError) {
           console.error('[attemptSave] hash write-back failed:', hashWriteError.message)
@@ -262,7 +284,8 @@ export default function ParticipantFlow() {
         await logEvent({
           eventType: 'document.sealed',
           sessionId: resolvedSessionId,
-          waiverId:  waiver.id,
+          waiverId,
+          operatorId: engineData.operatorId,
           metadata: {
             hashPreview: `${sealResult.documentHash.slice(0, 4)}…${sealResult.documentHash.slice(-4)}`,
             hasPdf:      true,

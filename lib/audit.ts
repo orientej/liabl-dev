@@ -23,6 +23,10 @@ export interface AuditEventInput {
   eventType:  AuditEventType
   sessionId:  string | null
   waiverId?:  string | null
+  // v25 M5 RLS — nullable because the very first event of a flow
+  // (session.started) fires before the operator's data has loaded; see
+  // 011_m5_rls_tighten.sql's backfill comment on audit_events.operator_id.
+  operatorId?: string | null
   metadata?:  Record<string, unknown>
   ipAddress?: string | null
 }
@@ -52,6 +56,7 @@ export async function logEvent(input: AuditEventInput): Promise<void> {
       event_type:  input.eventType,
       session_id:  input.sessionId,
       waiver_id:   input.waiverId ?? null,
+      operator_id: input.operatorId ?? null,
       metadata:    input.metadata ?? null,
       ip_address:  input.ipAddress ?? null,
     })

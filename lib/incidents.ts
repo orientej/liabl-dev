@@ -31,6 +31,7 @@ export interface IncidentRecord {
 }
 
 export interface CreateIncidentInput {
+  operatorId: string   // v25 M5 RLS — incidents.operator_id is NOT NULL; caller must resolve this (getCurrentOperatorMember)
   waiverId: string | null
   participantName: string
   activity: string
@@ -105,6 +106,7 @@ export async function createIncident(input: CreateIncidentInput): Promise<Incide
     .from('incidents')
     .insert({
       ref,
+      operator_id: input.operatorId,
       waiver_id: input.waiverId,
       participant_name: input.participantName,
       activity: input.activity,
