@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import Logo from '@/components/Logo'
 import PageNav from '@/components/PageNav'
-import RosterTab        from '@/components/operator/RosterTab_OLD_07-07-2026'
+import RosterTab        from '@/components/operator/RosterTab'
 import TemplateTab      from '@/components/operator/TemplateTab'
 import AnalyticsTab     from '@/components/operator/AnalyticsTab'
 import IncidentTab      from '@/components/operator/IncidentTab'
