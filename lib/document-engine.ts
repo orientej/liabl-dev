@@ -59,6 +59,18 @@ export interface ActivityRecord {
   accentColor:   string
   baseRiskScore: number
   subtitle:      string | null
+  published:     boolean
+}
+
+export interface QuestionRecord {
+  id:             string
+  activityId:     string | null   // null = applies to all this operator's activities
+  text:           string
+  type:           'yes_no' | 'text' | 'multiple'
+  options:        string[] | null
+  sortOrder:      number
+  triggersClause: boolean
+  triggerValue:   string
 }
 
 // Internal raw shape — not exported, callers only see ActivityRecord /
@@ -82,6 +94,7 @@ export interface EngineData {
   governingLawState:   string
   governingLawCounty:  string | null
   activities:          ActivityRecord[]
+  questions:           QuestionRecord[]
   clauses:             ClauseRow[]
 }
 
@@ -101,7 +114,8 @@ const DEFAULT_OPERATOR_SLUG = 'desert-ridge'
  */
 export async function fetchEngineData(
   supabase: SupabaseClient,
-  operatorSlug: string = DEFAULT_OPERATOR_SLUG
+  operatorSlug: string = DEFAULT_OPERATOR_SLUG,
+  options: { includeUnpublished?: boolean } = {}
 ): Promise<EngineData> {
   const { data: operator, error: operatorError } = await supabase
     .from('operators')
@@ -112,23 +126,36 @@ export async function fetchEngineData(
   if (operatorError) throw new Error(`operator lookup: ${operatorError.message}`)
   if (!operator) throw new Error(`no operator found for slug "${operatorSlug}"`)
 
-  const [{ data: activityRows, error: activitiesError }, { data: clauseRows, error: clausesError }] =
-    await Promise.all([
-      supabase
-        .from('activities')
-        .select('id, key, display_name, icon, accent_color, base_risk_score, subtitle')
-        .eq('operator_id', operator.id)
-        .eq('published', true)
-        .order('sort_order'),
+  let activitiesQuery = supabase
+    .from('activities')
+    .select('id, key, display_name, icon, accent_color, base_risk_score, subtitle, published')
+    .eq('operator_id', operator.id)
+    .order('sort_order')
+  if (!options.includeUnpublished) {
+    activitiesQuery = activitiesQuery.eq('published', true)
+  }
+
+  const [
+    { data: activityRows, error: activitiesError },
+    { data: clauseRows, error: clausesError },
+    { data: questionRows, error: questionsError },
+  ] = await Promise.all([
+      activitiesQuery,
       supabase
         .from('activity_clauses')
         .select('id, activity_id, question_id, key, title, body_template, required, highlight, sort_order')
+        .eq('operator_id', operator.id)
+        .order('sort_order'),
+      supabase
+        .from('activity_questions')
+        .select('id, activity_id, text, type, options, sort_order, triggers_clause, trigger_value')
         .eq('operator_id', operator.id)
         .order('sort_order'),
     ])
 
   if (activitiesError) throw new Error(`activities fetch: ${activitiesError.message}`)
   if (clausesError)    throw new Error(`activity_clauses fetch: ${clausesError.message}`)
+  if (questionsError)  throw new Error(`activity_questions fetch: ${questionsError.message}`)
 
   const activities: ActivityRecord[] = (activityRows ?? []).map((r: any) => ({
     id:            r.id,
@@ -138,6 +165,7 @@ export async function fetchEngineData(
     accentColor:   r.accent_color,
     baseRiskScore: r.base_risk_score,
     subtitle:      r.subtitle ?? null,
+    published:     r.published,
   }))
 
   const clauses: ClauseRow[] = (clauseRows ?? []).map((r: any) => ({
@@ -152,6 +180,17 @@ export async function fetchEngineData(
     sortOrder:    r.sort_order,
   }))
 
+  const questions: QuestionRecord[] = (questionRows ?? []).map((r: any) => ({
+    id:             r.id,
+    activityId:     r.activity_id,
+    text:           r.text,
+    type:           r.type,
+    options:        r.options ?? null,
+    sortOrder:      r.sort_order,
+    triggersClause: r.triggers_clause,
+    triggerValue:   r.trigger_value,
+  }))
+
   return {
     operatorId:         operator.id,
     operatorSlug:       operator.slug,
@@ -159,6 +198,7 @@ export async function fetchEngineData(
     governingLawState:  operator.governing_law_state,
     governingLawCounty: operator.governing_law_county ?? null,
     activities,
+    questions,
     clauses,
   }
 }
