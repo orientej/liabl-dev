@@ -37,18 +37,9 @@ alter table incidents
 --     incident, or a participant who hasn't been found in search yet
 
 -- A lightweight guard: require at least a name even when there's no waiver link.
--- Postgres has no ADD CONSTRAINT IF NOT EXISTS — check pg_constraint directly
--- so this migration stays safe to re-run, same as everything else in it.
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'incidents_participant_name_required'
-  ) then
-    alter table incidents
-      add constraint incidents_participant_name_required
-      check (participant_name is not null and participant_name <> '');
-  end if;
-end $$;
+alter table incidents
+  add constraint if not exists incidents_participant_name_required
+  check (participant_name is not null and participant_name <> '');
 
 -- ─────────────────────────────────────────────────────────────
 -- Legal hold should actually touch the waiver, not just the incident
