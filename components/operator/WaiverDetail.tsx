@@ -19,7 +19,7 @@ export interface WaiverDetailRow {
   is_minor: boolean
   ip_address: string | null
   document_hash: string | null
-  pdf_url: string | null
+  pdf_path: string | null
   answers: Record<string, unknown> | null
   clauses: WaiverClause[] | null
   session_id: string | null
@@ -78,6 +78,28 @@ export default function WaiverDetail({
     ? new Date(row.signed_at).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
     : '—'
   const docId  = `doc_${row.id.slice(0, 8)}`
+
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError,   setPdfError]   = useState<string | null>(null)
+
+  // v25 M6 security review — replaces opening a stored long-lived signed
+  // URL directly. Generates a fresh, short-lived one on demand instead;
+  // see app/api/waivers/[id]/pdf-url/route.ts.
+  async function openPdf() {
+    setPdfError(null)
+    setPdfLoading(true)
+    try {
+      const res = await fetch(`/api/waivers/${row.id}/pdf-url`)
+      const body = await res.json()
+      if (!res.ok || !body.url) throw new Error(body.error ?? 'Failed to open document')
+      window.open(body.url, '_blank')
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : 'Failed to open document')
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
 
   const answers = row.answers ?? {}
   const age     = ageFromDob(answers.dob)
@@ -279,12 +301,13 @@ export default function WaiverDetail({
 
             {/* Action buttons */}
             <div className="flex gap-2">
-              {row.pdf_url ? (
+              {row.pdf_path ? (
                 <button
-                  onClick={() => window.open(row.pdf_url!, '_blank')}
-                  className="text-xs px-3 py-2 rounded-xl border border-brand/30 text-brand bg-brand/5 hover:bg-brand/10 transition-colors flex-1"
+                  onClick={openPdf}
+                  disabled={pdfLoading}
+                  className="text-xs px-3 py-2 rounded-xl border border-brand/30 text-brand bg-brand/5 hover:bg-brand/10 transition-colors flex-1 disabled:opacity-50"
                 >
-                  ↓ Download PDF
+                  {pdfLoading ? 'Opening…' : '↓ Download PDF'}
                 </button>
               ) : (
                 <button disabled className="text-xs px-3 py-2 rounded-xl border border-black/20 text-gray-400 flex-1 cursor-not-allowed">
@@ -292,12 +315,15 @@ export default function WaiverDetail({
                 </button>
               )}
               <button disabled className="text-xs px-3 py-2 rounded-xl border border-black/20 text-gray-400 flex-1 cursor-not-allowed"
-                title="Email delivery coming in Milestone 2">
+                title="Sent automatically to the participant at signing">
                 ✉ Email copy
               </button>
             </div>
-            {!row.pdf_url && (
-              <p className="text-xs text-gray-400 text-center">PDF generation in progress (Milestone 2)</p>
+            {pdfError && (
+              <p className="text-xs text-red-500 text-center">{pdfError}</p>
+            )}
+            {!row.pdf_path && !pdfError && (
+              <p className="text-xs text-gray-400 text-center">No sealed document on file — not yet sealed, or redacted after the 90-day retention window</p>
             )}
           </div>
         </div>

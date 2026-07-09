@@ -2,7 +2,7 @@
 // v24 M2 item 3 — document sealing: hash + PDF generation + storage
 //
 // Called once at signing time, after the waiver row is inserted.
-// Returns the document_hash and pdf_url to write back to that row.
+// Returns the document_hash and pdf_path to write back to that row.
 //
 // Design decisions:
 // - The hash is computed over a deterministic canonical string that
@@ -49,7 +49,7 @@ export interface SealInput {
 
 export interface SealResult {
   documentHash: string      // hex SHA-256
-  pdfUrl: string            // Supabase Storage signed URL
+  pdfPath: string            // Storage path, e.g. waivers/2026/07/{id}.pdf — not a URL; see uploadPdf's comment
 }
 
 // ─── Canonical document string ────────────────────────────────────────────────
@@ -318,16 +318,20 @@ export async function uploadPdf(
 
   if (uploadError) throw new Error(`PDF upload: ${uploadError.message}`)
 
-  // Signed URL valid for 10 years — durable enough for legal hold scenarios.
-  // (Supabase max is 315,360,000 seconds = ~10 years)
-  const { data: signedData, error: signedError } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(path, 315_360_000)
-
-  if (signedError) throw new Error(`signed URL: ${signedError.message}`)
-  if (!signedData?.signedUrl) throw new Error('no signed URL returned')
-
-  return signedData.signedUrl
+  // v25 M6 security review — this used to generate a 10-year signed URL
+  // here and store it directly, rationalized as "durable enough for
+  // legal hold scenarios." That reasoning missed that durability and
+  // revocability were in tension: a signed URL can't be revoked early
+  // short of deleting the underlying file, and legal-hold waivers are
+  // specifically EXEMPT from the 90-day retention purge that would
+  // otherwise bound this — meaning the most sensitive documents kept the
+  // longest-lived, least-revocable access path. Returning just the path
+  // now; short-lived signed URLs are generated on demand instead, by an
+  // authenticated route (app/api/waivers/[id]/pdf-url) that checks the
+  // requester's own operator via RLS before ever calling
+  // createSignedUrl. Durability is preserved (the path never expires,
+  // so a fresh URL can always be minted) without the revocability cost.
+  return path
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -344,7 +348,7 @@ export async function sealWaiver(
   const pdfBytes = await buildPdf(input, documentHash)
 
   // 3. Upload to storage
-  const pdfUrl = await uploadPdf(supabase, input.waiverId, pdfBytes, input.signedAt)
+  const pdfPath = await uploadPdf(supabase, input.waiverId, pdfBytes, input.signedAt)
 
-  return { documentHash, pdfUrl }
+  return { documentHash, pdfPath }
 }

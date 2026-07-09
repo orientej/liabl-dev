@@ -312,7 +312,7 @@ export default function ParticipantFlow() {
 
         const { error: hashWriteError } = await supabase
           .from('waivers')
-          .update({ document_hash: sealResult.documentHash, pdf_url: sealResult.pdfUrl })
+          .update({ document_hash: sealResult.documentHash, pdf_path: sealResult.pdfPath })
           .eq('id', waiverId)
 
         if (hashWriteError) {
@@ -343,6 +343,14 @@ export default function ParticipantFlow() {
       setPendingSignature(null)
       clearDraft(sessionId)
       setStep(7)
+
+      // v25 M6 security review — this used to be a false claim in
+      // StepConfirm.tsx's copy ("emailed to you") with no actual email
+      // ever sent. Fire-and-forget: the waiver is already validly signed
+      // regardless of whether this email succeeds, so it must never
+      // block or delay the confirmation screen the participant sees.
+      fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
+        .catch(err => console.error('[attemptSave] confirmation email failed:', err))
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'

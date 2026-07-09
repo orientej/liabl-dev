@@ -62,11 +62,14 @@ export async function GET(request: NextRequest) {
 
   for (const waiver of candidates) {
     // Path is fully deterministic from data we already have — see
-    // lib/seal.ts's uploadPdf — so there's no need to parse the stored
-    // (long-lived, 10-year signed) pdf_url at all. Mirrors uploadPdf's
-    // exact getFullYear()/getMonth() calls (not UTC variants) — matching
-    // the original write path precisely rather than assuming they're
-    // equivalent in whatever runtime this executes in.
+    // lib/seal.ts's uploadPdf — computed directly rather than read from
+    // pdf_path (which this migration-era code predates using directly;
+    // as of 015_m6_pdf_path.sql, pdf_path stores this same value, but
+    // recomputing it here doesn't depend on that column being populated
+    // for older rows). Mirrors uploadPdf's exact getFullYear()/getMonth()
+    // calls (not UTC variants) — matching the original write path
+    // precisely rather than assuming they're equivalent in whatever
+    // runtime this executes in.
     const signedAt = new Date(waiver.signed_at as string)
     const yyyy = signedAt.getFullYear()
     const mm   = String(signedAt.getMonth() + 1).padStart(2, '0')
@@ -86,7 +89,7 @@ export async function GET(request: NextRequest) {
         answers:        null,
         clauses:        null,
         signature_data: null,
-        pdf_url:        null,
+        pdf_path:       null,
         ip_address:     null,
         redacted_at:    new Date().toISOString(),
       })
