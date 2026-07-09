@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels } from '@/lib/document-engine'
+import { saveDraft, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
 import Logo           from '@/components/Logo'
@@ -40,6 +41,14 @@ export default function ParticipantFlow() {
   const [engineData,   setEngineData]   = useState<EngineData | null>(null)
   const [engineError,  setEngineError]  = useState<string | null>(null)
 
+  // v25 M6 — session recovery. checkedDraft gates the very first render
+  // so we never flash the empty entry screen before knowing whether a
+  // resume prompt should show instead. draftPrompt holds a found draft
+  // awaiting an explicit resume/discard choice — see lib/draft-storage.ts
+  // for why this is never silently auto-restored.
+  const [checkedDraft, setCheckedDraft] = useState(false)
+  const [draftPrompt,  setDraftPrompt]  = useState<DraftState | null>(null)
+
   const labels = engineData ? buildActivityLabels(engineData) : {}
 
   // Resolved session UUID — available once the flow has touched the DB.
@@ -61,6 +70,13 @@ export default function ParticipantFlow() {
   //
   // We also grab the IP here so it's available for all subsequent events.
   useEffect(() => {
+    // v25 M6 — check for a recoverable draft first, synchronously (no
+    // network round-trip needed, it's just localStorage) — this is what
+    // checkedDraft gates the initial render on, so there's no flash of
+    // the empty entry screen before a resume prompt would show instead.
+    setDraftPrompt(loadDraft(sessionId))
+    setCheckedDraft(true)
+
     async function onFlowStart() {
       // Best-effort IP capture (same route as signing flow)
       try {
@@ -101,6 +117,23 @@ export default function ParticipantFlow() {
     loadEngineData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  function resumeDraft() {
+    if (!draftPrompt) return
+    setAnswers(draftPrompt.answers)
+    // Signature is never restored, by design — always a fresh, deliberate
+    // final act. Landing back on step 6 with no signature drawn yet would
+    // be fine functionally, but re-showing the reviewed document first
+    // (step 5) is a better experience than dropping straight back into
+    // "sign here" after a gap of unknown length.
+    setStep(draftPrompt.step === 6 ? 5 : draftPrompt.step)
+    setDraftPrompt(null)
+  }
+
+  function discardDraft() {
+    clearDraft(sessionId)
+    setDraftPrompt(null)
+  }
+
   function next(update?: Partial<ParticipantAnswers>) {
     const merged = { ...answers, ...update }
     setAnswers(merged)
@@ -134,6 +167,12 @@ export default function ParticipantFlow() {
 
     const nextStep = step === 3 && !merged.isMinor ? 5 : step + 1
     setStep(nextStep)
+
+    // v25 M6 — persist at step boundaries only (not every keystroke
+    // within a step). Losing in-progress typing on a single field if the
+    // connection drops mid-step is an acceptable, small cost; losing
+    // several fully-completed steps is the actual problem this solves.
+    if (merged.fullName) saveDraft(sessionId, nextStep, merged)
   }
 
   function prev() { setStep(step === 5 && !isMinor ? 3 : Math.max(0, step - 1)) }
@@ -155,6 +194,7 @@ export default function ParticipantFlow() {
       ipAddress: ipAddressRef.current,
     })
     setStep(6)
+    if (answers.fullName) saveDraft(sessionId, 6, answers)
   }
 
   async function attemptSave(sigData: string): Promise<void> {
@@ -301,6 +341,7 @@ export default function ParticipantFlow() {
       // SUCCESS
       setSaveState({ kind: 'idle' })
       setPendingSignature(null)
+      clearDraft(sessionId)
       setStep(7)
 
     } catch (err) {
@@ -334,15 +375,40 @@ export default function ParticipantFlow() {
     setSaveState({ kind: 'idle' })
     setPendingSignature(null)
     resolvedSessionIdRef.current = null
+    clearDraft(sessionId)
   }
 
   const saving = saveState.kind === 'saving'
+
+  const draftAge = draftPrompt
+    ? Math.max(1, Math.round((Date.now() - new Date(draftPrompt.savedAt).getTime()) / 60000))
+    : 0
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
       <PageNav badge="Participant" operatorName="Desert Ridge Adventures" operatorAccent="#4B2ACF" />
       <div className="flex-1 flex flex-col items-center px-4 py-8">
         <div className="w-full max-w-lg">
+          {!checkedDraft ? null : draftPrompt ? (
+            // v25 M6 — never silently restore. Whoever's holding the
+            // tablet sees exactly whose in-progress waiver this is and
+            // decides — the safety mechanism for a shared check-in
+            // device where one session covers many different people.
+            <div className="card">
+              <h2 className="font-serif text-xl mb-2" style={{ letterSpacing:'-0.01em' }}>Resume in-progress waiver?</h2>
+              <p className="text-sm text-gray-500 mb-5">
+                We found an unfinished waiver for{' '}
+                <span className="font-medium text-ink">{draftPrompt.answers.fullName || 'someone'}</span>
+                {' '}started about {draftAge} minute{draftAge === 1 ? '' : 's'} ago on this device.
+                If this isn&apos;t you, start fresh below.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={discardDraft} className="btn-secondary">Start fresh</button>
+                <button onClick={resumeDraft} className="btn-primary">Resume my waiver</button>
+              </div>
+            </div>
+          ) : (
+          <>
           {step > 0 && step < 7 && (
             <>
               <div className="flex items-center gap-2 mb-2 text-xs text-muted">
@@ -361,7 +427,12 @@ export default function ParticipantFlow() {
             {step === 3 && <StepHealth    onNext={(v) => next(v)} onBack={prev} answers={answers} labels={labels} />}
             {step === 4 && isMinor && (
               <StepGuardian minorName={answers.fullName ?? 'Minor'}
-                onNext={(v) => { setAnswers(a => ({...a,...v})); setStep(5) }}
+                onNext={(v) => {
+                  const merged = { ...answers, ...v }
+                  setAnswers(merged)
+                  setStep(5)
+                  if (merged.fullName) saveDraft(sessionId, 5, merged)
+                }}
                 onBack={prev} />
             )}
             {/* StepDocument now calls onDocumentProceed instead of setStep(6) directly,
@@ -416,6 +487,8 @@ export default function ParticipantFlow() {
             )}
             {step === 7 && <StepConfirm answers={answers as ParticipantAnswers} labels={labels} onRestart={restart} />}
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>
