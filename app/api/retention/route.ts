@@ -1,4 +1,4 @@
-// app/api/retention/purge/route.ts
+// app/api/retention/route.ts
 // v25 M5 — 90-day document retention enforcement.
 //
 // Redacts (does not fully delete) waivers signed more than 90 days ago

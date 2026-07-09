@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/retention/purge",
+      "path": "/api/retention",
       "schedule": "0 9 * * *"
     }
   ]
