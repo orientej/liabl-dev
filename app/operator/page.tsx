@@ -11,14 +11,15 @@ import MobileTab        from '@/components/operator/MobileTab'
 import NotificationTab  from '@/components/operator/NotificationTab'
 import MultiLocationTab from '@/components/operator/MultiLocationTab'
 import SettingsTab      from '@/components/operator/SettingsTab'
+import SessionsTab      from '@/components/operator/SessionsTab'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert,
-  IconAuditTrail, IconLocation, IconMobile, IconUserGroup,
+  IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket,
 } from '@/components/icons'
 
-type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'
+type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
 
 export default function OperatorPage() {
   const router = useRouter()
@@ -67,6 +68,7 @@ export default function OperatorPage() {
   }
 
   const tabs: { key:Tab; label:string; Icon: React.ComponentType<{size?:number;color?:string}> }[] = [
+    { key:'sessions',      label:'Sessions',       Icon: IconRocket     },
     { key:'roster',        label:'Roster',         Icon: IconSigned     },
     { key:'analytics',     label:'Analytics',      Icon: IconAnalytics  },
     { key:'templates',     label:'Templates',      Icon: IconTemplate   },
@@ -136,6 +138,7 @@ export default function OperatorPage() {
         {tab === 'multilocation' && <MultiLocationTab />}
         {tab === 'mobile'        && <MobileTab />}
         {tab === 'settings'      && <SettingsTab />}
+        {tab === 'sessions'      && <SessionsTab />}
       </div>
     </div>
   )
