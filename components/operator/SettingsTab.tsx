@@ -140,6 +140,9 @@ export default function SettingsTab() {
         )}
       </div>
 
+      {/* Participant sign-in page */}
+      <ParticipantUrlCard />
+
       {/* Team */}
       <div className="card mb-4">
         <h2 className="font-semibold text-sm text-ink mb-4">Team ({team.length})</h2>
@@ -254,6 +257,38 @@ function InvitePanel({ operatorId, invitedByUserId, invites, onChanged, onError 
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ParticipantUrlCard() {
+  const [copied, setCopied] = useState(false)
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/participant` : ''
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(baseUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Non-fatal — the input below is still selectable/copyable by hand.
+    }
+  }
+
+  return (
+    <div className="card mb-4">
+      <h2 className="font-semibold text-sm text-ink mb-1">Participant sign-in page</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        This is the base address participants land on to sign a waiver. It needs a specific check-in link to know
+        which activity and timeslot they&apos;re signing for — head to the Sessions tab to create one and get its
+        shareable link or QR code.
+      </p>
+      <div className="flex gap-2">
+        <input readOnly value={baseUrl} className="form-input text-xs font-mono flex-1" onClick={e => (e.target as HTMLInputElement).select()} />
+        <button onClick={copy} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-surface shrink-0 whitespace-nowrap">
+          {copied ? 'Copied ✓' : 'Copy'}
+        </button>
+      </div>
     </div>
   )
 }
