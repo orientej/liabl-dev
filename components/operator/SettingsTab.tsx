@@ -12,7 +12,7 @@ const US_STATES = [
   'South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming',
 ]
 
-export default function SettingsTab() {
+export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSessions?: () => void }) {
   const [member,   setMember]   = useState<CurrentOperatorMember | null>(null)
   const [loading,  setLoading]  = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -141,7 +141,7 @@ export default function SettingsTab() {
       </div>
 
       {/* Participant sign-in page */}
-      <ParticipantUrlCard />
+      <ParticipantUrlCard onNavigateToSessions={onNavigateToSessions} />
 
       {/* Team */}
       <div className="card mb-4">
@@ -261,34 +261,33 @@ function InvitePanel({ operatorId, invitedByUserId, invites, onChanged, onError 
   )
 }
 
-function ParticipantUrlCard() {
-  const [copied, setCopied] = useState(false)
-  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/participant` : ''
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(baseUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Non-fatal — the input below is still selectable/copyable by hand.
-    }
-  }
-
+function ParticipantUrlCard({ onNavigateToSessions }: { onNavigateToSessions?: () => void }) {
+  // There is no single "this operator's participant page" URL — the
+  // participant flow only knows which operator/activity it's for via a
+  // specific session ID (see lib/document-engine.ts's fetchEngineData).
+  // A bare /participant link with no session falls back to a hardcoded
+  // demo sentinel tied to whichever operator happens to own that seed
+  // session — which is exactly the bug this replaces: every operator's
+  // Settings page was showing the same link, and it always resolved to
+  // Desert Ridge Adventures' demo session regardless of whose account
+  // you were actually in. Real, correctly-scoped links only exist per
+  // session, already built and working in the Sessions tab — so point
+  // there directly instead of ever displaying a link that can't be
+  // correct.
   return (
     <div className="card mb-4">
-      <h2 className="font-semibold text-sm text-ink mb-1">Participant sign-in page</h2>
+      <h2 className="font-semibold text-sm text-ink mb-1">Participant sign-in links</h2>
       <p className="text-xs text-gray-400 mb-3">
-        This is the base address participants land on to sign a waiver. It needs a specific check-in link to know
-        which activity and timeslot they&apos;re signing for — head to the Sessions tab to create one and get its
-        shareable link or QR code.
+        Every check-in link is specific to one session (activity + timeslot) — there&apos;s no single link for
+        &quot;your&quot; participant page in general. Create a session to get its shareable link and QR code.
       </p>
-      <div className="flex gap-2">
-        <input readOnly value={baseUrl} className="form-input text-xs font-mono flex-1" onClick={e => (e.target as HTMLInputElement).select()} />
-        <button onClick={copy} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-surface shrink-0 whitespace-nowrap">
-          {copied ? 'Copied ✓' : 'Copy'}
+      {onNavigateToSessions ? (
+        <button onClick={onNavigateToSessions} className="text-sm px-4 py-2 bg-brand text-white rounded-xl font-medium hover:opacity-90">
+          Go to Sessions →
         </button>
-      </div>
+      ) : (
+        <span className="text-xs text-gray-400">See the Sessions tab.</span>
+      )}
     </div>
   )
 }

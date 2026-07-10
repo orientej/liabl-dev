@@ -137,7 +137,7 @@ export default function OperatorPage() {
         {tab === 'notifications' && <NotificationTab />}
         {tab === 'multilocation' && <MultiLocationTab />}
         {tab === 'mobile'        && <MobileTab />}
-        {tab === 'settings'      && <SettingsTab />}
+        {tab === 'settings'      && <SettingsTab onNavigateToSessions={() => setTab('sessions')} />}
         {tab === 'sessions'      && <SessionsTab />}
       </div>
     </div>
