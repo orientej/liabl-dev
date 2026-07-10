@@ -22,6 +22,7 @@ export interface CurrentOperatorMember {
   operatorId:   string
   operatorSlug: string
   operatorName: string
+  operatorStatus: 'active' | 'suspended'
   role: 'owner' | 'staff'
 }
 
@@ -61,7 +62,7 @@ export async function getCurrentOperatorMember(): Promise<CurrentOperatorMember 
 
   const { data, error } = await supabase
     .from('operator_members')
-    .select('role, operators(id, slug, name)')
+    .select('role, operators(id, slug, name, status)')
     .eq('user_id', user.id)
     .maybeSingle()
 
@@ -80,6 +81,7 @@ export async function getCurrentOperatorMember(): Promise<CurrentOperatorMember 
     operatorId:   operator.id,
     operatorSlug: operator.slug,
     operatorName: operator.name,
+    operatorStatus: operator.status as 'active' | 'suspended',
     role:         data.role as 'owner' | 'staff',
   }
 }

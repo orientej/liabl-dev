@@ -29,12 +29,21 @@ export default function OperatorPage() {
   // not a permanent fallback.
   const [operatorName, setOperatorName] = useState('Loading…')
   const [billing, setBilling] = useState<BillingStatus | null>(null)
+  const [suspended, setSuspended] = useState(false)
 
   useEffect(() => {
     (async () => {
       const member = await getCurrentOperatorMember()
       if (member) {
         setOperatorName(member.operatorName)
+        if (member.operatorStatus === 'suspended') {
+          // Dedicated screen rather than letting every tab's own
+          // fetchEngineData() call surface this as a scattered generic
+          // load-error banner — a suspended account deserves one clear
+          // message, not five confusing ones across five tabs.
+          setSuspended(true)
+          return
+        }
         try {
           const { createClient } = await import('@/lib/supabase')
           setBilling(await fetchBillingStatus(createClient(), member.operatorId))
@@ -67,6 +76,20 @@ export default function OperatorPage() {
     { key:'mobile',        label:'Mobile App',     Icon: IconMobile     },
     { key:'settings',      label:'Settings',       Icon: IconUserGroup  },
   ]
+
+  if (suspended) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <PageNav badge="Operator" operatorName={operatorName} operatorAccent="#4B2ACF" onSignOut={handleSignOut} />
+        <div className="max-w-md mx-auto px-4 py-24 text-center">
+          <h1 className="font-serif text-2xl mb-3" style={{ letterSpacing:'-0.01em' }}>Account suspended</h1>
+          <p className="text-sm text-gray-500">
+            {operatorName}&apos;s account is currently suspended. Contact LIABL support to resolve this and restore access.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-surface">

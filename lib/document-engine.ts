@@ -141,12 +141,15 @@ export async function fetchEngineData(
 
   const { data: operator, error: operatorError } = await supabase
     .from('operators')
-    .select('id, slug, name, governing_law_state, governing_law_county')
+    .select('id, slug, name, governing_law_state, governing_law_county, status')
     .eq('slug', resolvedSlug)
     .maybeSingle()
 
   if (operatorError) throw new Error(`operator lookup: ${operatorError.message}`)
   if (!operator) throw new Error(`no operator found for slug "${resolvedSlug}"`)
+  if (operator.status === 'suspended') {
+    throw new Error('This operator account is currently suspended. Contact LIABL support for assistance.')
+  }
 
   let activitiesQuery = supabase
     .from('activities')
