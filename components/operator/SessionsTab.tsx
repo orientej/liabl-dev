@@ -1,30 +1,54 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import QRCode from 'qrcode'
-import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
-import { listSessions, createSession, deleteSession, type SessionRecord } from '@/lib/sessions'
+import { fetchEngineData } from '@/lib/document-engine'
+import { getCurrentOperatorMember, updateOperatorProfile, type CurrentOperatorMember } from '@/lib/auth'
+import { listTeamMembers, listInvites, createInvite, revokeInvite, type TeamMember, type Invite } from '@/lib/invites'
 
-export default function SessionsTab() {
-  const [operatorId, setOperatorId] = useState<string | null>(null)
-  const [activities, setActivities] = useState<ActivityRecord[]>([])
-  const [sessions, setSessions] = useState<SessionRecord[]>([])
-  const [loading, setLoading] = useState(true)
+const US_STATES = [
+  'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia',
+  'Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland',
+  'Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey',
+  'New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina',
+  'South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming',
+]
+
+export default function SettingsTab() {
+  const [member,   setMember]   = useState<CurrentOperatorMember | null>(null)
+  const [loading,  setLoading]  = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
+
+  const [name, setName] = useState('')
+  const [lawState, setLawState] = useState('')
+  const [lawCounty, setLawCounty] = useState('')
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+
+  const [team, setTeam] = useState<TeamMember[]>([])
+  const [invites, setInvites] = useState<Invite[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
+      const m = await getCurrentOperatorMember()
+      if (!m) throw new Error('No organization found for your account')
+      setMember(m)
+
       const { createClient } = await import('@/lib/supabase')
       const engineData = await fetchEngineData(createClient())
-      setOperatorId(engineData.operatorId)
-      setActivities(engineData.activities)
-      setSessions(await listSessions(engineData.operatorId))
+      setName(engineData.operatorName)
+      setLawState(engineData.governingLawState)
+      setLawCounty(engineData.governingLawCounty ?? '')
+
+      const [teamData, inviteData] = await Promise.all([
+        listTeamMembers(m.operatorId),
+        listInvites(m.operatorId),
+      ])
+      setTeam(teamData)
+      setInvites(inviteData)
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'Failed to load sessions')
+      setLoadError(e instanceof Error ? e.message : 'Failed to load settings')
     } finally {
       setLoading(false)
     }
@@ -32,225 +56,239 @@ export default function SessionsTab() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  const today = new Date().toISOString().slice(0, 10)
-  const upcoming = sessions.filter(s => s.sessionDate >= today)
-  const past = sessions.filter(s => s.sessionDate < today)
+  async function saveProfile() {
+    if (!member || !name.trim() || !lawState.trim()) return
+    setSavingProfile(true)
+    setActionError(null)
+    try {
+      await updateOperatorProfile(member.operatorId, {
+        name, governingLawState: lawState, governingLawCounty: lawCounty || null,
+      })
+      setEditingProfile(false)
+      await refresh()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to save organization profile')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
 
-  if (loading) return <div className="px-5 py-10 text-center text-sm text-gray-400">Loading sessions…</div>
-  if (loadError) return <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{loadError}</div>
+  if (loading) return <div className="px-5 py-10 text-center text-sm text-gray-400">Loading settings…</div>
+
+  if (loadError || !member) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+        <div className="font-semibold mb-0.5">Couldn&apos;t load settings</div>
+        <div className="text-xs">{loadError}</div>
+        <button onClick={refresh} className="text-xs underline mt-1">Try again</button>
+      </div>
+    )
+  }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-serif text-2xl mb-1" style={{ letterSpacing:'-0.01em' }}>Check-in sessions</h1>
-          <p className="text-sm text-gray-400">Create a session for each tour timeslot, then share its link or QR code at check-in.</p>
-        </div>
-        <button onClick={() => setCreating(true)} className="text-sm px-4 py-2 bg-brand text-white rounded-xl font-medium hover:opacity-90 shrink-0">
-          + New session
-        </button>
+      <div className="mb-6">
+        <h1 className="font-serif text-2xl mb-1" style={{ letterSpacing:'-0.01em' }}>Settings</h1>
+        <p className="text-sm text-gray-400">Organization profile and team access.</p>
       </div>
 
       {actionError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700 flex justify-between">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700 flex items-start justify-between gap-2">
           <span>{actionError}</span>
-          <button onClick={() => setActionError(null)}>×</button>
+          <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-700">×</button>
         </div>
       )}
 
-      {creating && operatorId && (
-        <CreateSessionForm
-          operatorId={operatorId}
-          activities={activities}
-          onCancel={() => setCreating(false)}
-          onCreated={async () => { setCreating(false); await refresh() }}
-          onError={setActionError}
-        />
-      )}
+      {/* Organization profile */}
+      <div className="card mb-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-sm text-ink">Organization profile</h2>
+          {!editingProfile && <button onClick={() => setEditingProfile(true)} className="text-xs px-3 py-1.5 rounded-lg border border-black/10 hover:bg-surface">Edit</button>}
+        </div>
 
-      {upcoming.length > 0 && (
-        <div className="mb-6">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Today &amp; upcoming</div>
-          <div className="space-y-2">
-            {upcoming.map(s => (
-              <SessionRow key={s.id} session={s} activities={activities} expanded={expandedId === s.id}
-                onToggle={() => setExpandedId(expandedId === s.id ? null : s.id)}
-                onDeleted={refresh} onError={setActionError} />
-            ))}
+        {!editingProfile ? (
+          <div className="space-y-1 text-sm">
+            <div><span className="text-gray-400">Name:</span> {name}</div>
+            <div><span className="text-gray-400">Governing law:</span> {lawState}{lawCounty ? `, ${lawCounty}` : ''}</div>
           </div>
-        </div>
-      )}
-
-      {past.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Past</div>
-          <div className="space-y-2">
-            {past.map(s => (
-              <SessionRow key={s.id} session={s} activities={activities} expanded={expandedId === s.id}
-                onToggle={() => setExpandedId(expandedId === s.id ? null : s.id)}
-                onDeleted={refresh} onError={setActionError} />
-            ))}
+        ) : (
+          <div>
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">Organization name</label>
+              <input className="form-input" value={name} onChange={e => setName(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Governing law — state</label>
+                <select className="form-input" value={lawState} onChange={e => setLawState(e.target.value)}>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">County (optional)</label>
+                <input className="form-input" value={lawCounty} onChange={e => setLawCounty(e.target.value)} />
+              </div>
+            </div>
+            <div className="text-xs text-gray-400 mb-4">This determines the governing-law clause on every waiver you generate.</div>
+            <div className="flex gap-2">
+              <button onClick={() => setEditingProfile(false)} className="btn-secondary py-2 text-sm">Cancel</button>
+              <button onClick={saveProfile} disabled={savingProfile || !name.trim() || !lawState.trim()} className="btn-primary py-2 text-sm">
+                {savingProfile ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {sessions.length === 0 && !creating && (
-        <div className="text-center text-sm text-gray-400 py-10">No sessions yet. Click &quot;+ New session&quot; to create your first check-in link.</div>
-      )}
+      {/* Participant sign-in page */}
+      <ParticipantUrlCard />
+
+      {/* Team */}
+      <div className="card mb-4">
+        <h2 className="font-semibold text-sm text-ink mb-4">Team ({team.length})</h2>
+        <div className="space-y-2">
+          {team.map(t => (
+            <div key={t.id} className="flex items-center justify-between bg-surface rounded-xl border border-black/8 p-3">
+              <div>
+                <div className="text-sm text-ink">{t.email ?? 'Unknown'}</div>
+                <div className="text-xs text-gray-400">Joined {new Date(t.joinedAt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}</div>
+              </div>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.role === 'owner' ? 'bg-brand/10 text-brand' : 'bg-gray-100 text-gray-600'}`}>
+                {t.role === 'owner' ? 'Owner' : 'Staff'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Invites */}
+      <InvitePanel
+        operatorId={member.operatorId}
+        invitedByUserId={member.userId}
+        invites={invites}
+        onChanged={refresh}
+        onError={setActionError}
+      />
     </div>
   )
 }
 
-function CreateSessionForm({ operatorId, activities, onCancel, onCreated, onError }: {
-  operatorId: string; activities: ActivityRecord[]
-  onCancel: () => void; onCreated: () => Promise<void>; onError: (e: string) => void
+function InvitePanel({ operatorId, invitedByUserId, invites, onChanged, onError }: {
+  operatorId: string; invitedByUserId: string; invites: Invite[]
+  onChanged: () => Promise<void>; onError: (e: string) => void
 }) {
-  const [sessionRef, setSessionRef] = useState('')
-  const [sessionTime, setSessionTime] = useState('')
-  const [sessionDate, setSessionDate] = useState(new Date().toISOString().slice(0, 10))
-  const [activityKey, setActivityKey] = useState(activities[0]?.key ?? '')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<'owner' | 'staff'>('staff')
   const [submitting, setSubmitting] = useState(false)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
 
   async function submit() {
-    if (!sessionRef.trim() || !activityKey) return
+    if (!email.trim()) return
     setSubmitting(true)
     try {
-      await createSession({ operatorId, sessionRef, sessionTime, sessionDate, activityKey })
-      await onCreated()
+      const { id } = await createInvite({ operatorId, email, role, invitedByUserId })
+      // Sending the email is a separate step (same pattern as waiver
+      // signing separates the DB write from logging/sealing) — the
+      // invite row exists regardless of whether this send succeeds, so
+      // a delivery hiccup doesn't lose the invite itself.
+      const res = await fetch('/api/invites/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inviteId: id }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? 'Invite created, but the email failed to send')
+      }
+      setEmail('')
+      await onChanged()
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Failed to create session')
+      onError(e instanceof Error ? e.message : 'Failed to send invite')
     } finally {
       setSubmitting(false)
     }
   }
 
+  async function revoke(id: string) {
+    setRevokingId(id)
+    try {
+      await revokeInvite(id)
+      await onChanged()
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Failed to revoke invite')
+    } finally {
+      setRevokingId(null)
+    }
+  }
+
+  const pending = invites.filter(i => i.status === 'pending')
+
   return (
-    <div className="bg-white rounded-2xl border border-brand/20 p-5 mb-6">
-      <h3 className="font-semibold text-sm text-ink mb-4">New session</h3>
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Label</label>
-          <input className="form-input" value={sessionRef} onChange={e => setSessionRef(e.target.value)} placeholder="e.g. AM-04" />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Activity</label>
-          <select className="form-input" value={activityKey} onChange={e => setActivityKey(e.target.value)}>
-            {activities.map(a => <option key={a.key} value={a.key}>{a.displayName}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Date</label>
-          <input type="date" className="form-input" value={sessionDate} onChange={e => setSessionDate(e.target.value)} />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Time (optional)</label>
-          <input className="form-input" value={sessionTime} onChange={e => setSessionTime(e.target.value)} placeholder="e.g. 9:00 AM" />
-        </div>
-      </div>
-      <div className="flex gap-2">
-        <button onClick={onCancel} className="btn-secondary py-2 text-sm">Cancel</button>
-        <button onClick={submit} disabled={submitting || !sessionRef.trim() || !activityKey} className="btn-primary py-2 text-sm">
-          {submitting ? 'Creating…' : 'Create session'}
+    <div className="card">
+      <h2 className="font-semibold text-sm text-ink mb-4">Invite a teammate</h2>
+      <div className="flex gap-2 mb-4">
+        <input className="form-input flex-1" placeholder="teammate@example.com" value={email}
+          onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} />
+        <select className="form-input w-32" value={role} onChange={e => setRole(e.target.value as 'owner' | 'staff')}>
+          <option value="staff">Staff</option>
+          <option value="owner">Owner</option>
+        </select>
+        <button onClick={submit} disabled={submitting || !email.trim()} className="btn-primary px-4">
+          {submitting ? 'Sending…' : 'Invite'}
         </button>
       </div>
+
+      {pending.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Pending invites</div>
+          <div className="space-y-2">
+            {pending.map(inv => (
+              <div key={inv.id} className="flex items-center justify-between bg-surface rounded-xl border border-black/8 p-3">
+                <div>
+                  <div className="text-sm text-ink">{inv.email}</div>
+                  <div className="text-xs text-gray-400">
+                    {inv.role === 'owner' ? 'Owner' : 'Staff'} · expires {new Date(inv.expiresAt).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
+                  </div>
+                </div>
+                <button onClick={() => revoke(inv.id)} disabled={revokingId === inv.id} className="text-xs text-red-500 hover:text-red-700 underline disabled:opacity-40">
+                  {revokingId === inv.id ? 'Revoking…' : 'Revoke'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function SessionRow({ session, activities, expanded, onToggle, onDeleted, onError }: {
-  session: SessionRecord; activities: ActivityRecord[]; expanded: boolean
-  onToggle: () => void; onDeleted: () => Promise<void>; onError: (e: string) => void
-}) {
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+function ParticipantUrlCard() {
   const [copied, setCopied] = useState(false)
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/participant` : ''
 
-  const activity = activities.find(a => a.key === session.activityKey)
-  const url = typeof window !== 'undefined' ? `${window.location.origin}/participant/session/${session.id}` : ''
-
-  useEffect(() => {
-    if (expanded && !qrDataUrl && url) {
-      QRCode.toDataURL(url, { width: 200, margin: 1 })
-        .then(setQrDataUrl)
-        .catch(() => onError('Failed to generate QR code'))
-    }
-  }, [expanded, qrDataUrl, url]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function copyLink() {
+  async function copy() {
     try {
-      await navigator.clipboard.writeText(url)
+      await navigator.clipboard.writeText(baseUrl)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      onError('Could not copy — your browser may be blocking clipboard access')
-    }
-  }
-
-  async function confirmedDelete() {
-    setDeleting(true)
-    try {
-      await deleteSession(session.id)
-      await onDeleted()
-    } catch (e) {
-      onError(e instanceof Error ? e.message : 'Failed to delete session')
-      setDeleting(false)
+      // Non-fatal — the input below is still selectable/copyable by hand.
     }
   }
 
   return (
-    <div className="bg-white rounded-xl border border-black/8 overflow-hidden">
-      <div onClick={onToggle} className="p-4 flex items-center justify-between cursor-pointer hover:bg-surface transition-colors">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-ink text-sm">{session.sessionRef || 'Untitled'}</span>
-            {session.waiverCount > 0 && (
-              <span className="text-xs bg-brand/10 text-brand px-2 py-0.5 rounded-full font-medium">{session.waiverCount} signed</span>
-            )}
-          </div>
-          <div className="text-xs text-gray-400 mt-0.5">
-            {activity?.displayName ?? session.activityKey} · {new Date(session.sessionDate + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
-            {session.sessionTime ? ` · ${session.sessionTime}` : ''}
-          </div>
-        </div>
-        <span className="text-gray-400 text-sm">{expanded ? '▲' : '▼'}</span>
+    <div className="card mb-4">
+      <h2 className="font-semibold text-sm text-ink mb-1">Participant sign-in page</h2>
+      <p className="text-xs text-gray-400 mb-3">
+        This is the base address participants land on to sign a waiver. It needs a specific check-in link to know
+        which activity and timeslot they&apos;re signing for — head to the Sessions tab to create one and get its
+        shareable link or QR code.
+      </p>
+      <div className="flex gap-2">
+        <input readOnly value={baseUrl} className="form-input text-xs font-mono flex-1" onClick={e => (e.target as HTMLInputElement).select()} />
+        <button onClick={copy} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-surface shrink-0 whitespace-nowrap">
+          {copied ? 'Copied ✓' : 'Copy'}
+        </button>
       </div>
-
-      {expanded && (
-        <div className="p-4 border-t border-black/8 bg-surface">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="shrink-0">
-              {qrDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrDataUrl} alt="QR code for check-in link" className="rounded-lg border border-black/10" width={140} height={140} />
-              ) : (
-                <div className="w-[140px] h-[140px] bg-black/5 rounded-lg animate-pulse" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <label className="block text-xs text-gray-500 mb-1">Check-in link</label>
-              <div className="flex gap-2 mb-4">
-                <input readOnly value={url} className="form-input text-xs font-mono flex-1" onClick={e => (e.target as HTMLInputElement).select()} />
-                <button onClick={copyLink} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-white shrink-0 whitespace-nowrap">
-                  {copied ? 'Copied ✓' : 'Copy'}
-                </button>
-              </div>
-
-              {!confirmDelete ? (
-                <button onClick={() => setConfirmDelete(true)} className="text-xs text-red-500 hover:text-red-700 underline">Delete session</button>
-              ) : (
-                <span className="flex items-center gap-2 text-xs">
-                  <span className="text-red-700">Delete this session?</span>
-                  <button onClick={confirmedDelete} disabled={deleting} className="text-red-700 font-medium underline">{deleting ? 'Deleting…' : 'Confirm'}</button>
-                  <button onClick={() => setConfirmDelete(false)} className="text-gray-400 underline">Cancel</button>
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
