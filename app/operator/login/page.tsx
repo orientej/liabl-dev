@@ -85,7 +85,16 @@ function OperatorLoginForm() {
     const member = await getCurrentOperatorMember()
     if (member) {
       setPhase('redirecting')
-      router.replace(redirectedFrom || '/operator')
+      // A hard navigation, not router.replace(). This redirect follows
+      // immediately after a fresh signIn()/signUp() — @supabase/ssr's
+      // browser client writes the session cookie via document.cookie,
+      // but a client-side router transition can reach middleware.ts
+      // before that write is reliably visible to the request, so
+      // middleware sees no session yet and bounces back to this same
+      // login page — which looks exactly like "stuck on Redirecting,
+      // only a manual refresh works." A full navigation guarantees the
+      // cookie is attached to a fresh top-level request.
+      window.location.href = redirectedFrom || '/operator'
       return
     }
 
@@ -107,7 +116,7 @@ function OperatorLoginForm() {
           return
         }
         setPhase('redirecting')
-        router.replace('/operator')
+        window.location.href = '/operator'
       } catch {
         setError('Failed to accept invite')
       }
@@ -150,7 +159,7 @@ function OperatorLoginForm() {
     try {
       await completeOperatorSetup({ operatorName, governingLawState, governingLawCounty })
       setPhase('redirecting')
-      router.replace('/operator')
+      window.location.href = '/operator'
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to set up your organization')
     } finally {
@@ -196,21 +205,25 @@ function OperatorLoginForm() {
 
             {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700">{error}</div>}
 
-            <div className="mb-3">
-              <label className="block text-xs text-gray-500 mb-1">Email</label>
-              <input type="email" className="form-input disabled:bg-surface disabled:text-gray-400" value={email} onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSubmit()} placeholder="you@company.com" autoFocus
-                disabled={!!invitePreview} />
-            </div>
-            <div className="mb-5">
-              <label className="block text-xs text-gray-500 mb-1">Password</label>
-              <input type="password" className="form-input" value={password} onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSubmit()} placeholder="••••••••" />
-            </div>
+            <form onSubmit={e => { e.preventDefault(); handleSubmit() }}>
+              <div className="mb-3">
+                <label htmlFor="login-email" className="block text-xs text-gray-500 mb-1">Email</label>
+                <input id="login-email" type="email" className="form-input disabled:bg-surface disabled:text-gray-400" value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="you@company.com" autoFocus
+                  disabled={!!invitePreview}
+                  autoComplete="email" name="email" />
+              </div>
+              <div className="mb-5">
+                <label htmlFor="login-password" className="block text-xs text-gray-500 mb-1">Password</label>
+                <input id="login-password" type="password" className="form-input" value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} name="password" />
+              </div>
 
-            <button onClick={handleSubmit} disabled={submitting || !email.trim() || !password} className="btn-primary w-full py-2.5">
-              {submitting ? 'Please wait…' : mode === 'signin' ? 'Sign In' : invitePreview ? 'Join team' : 'Create Account'}
-            </button>
+              <button type="submit" disabled={submitting || !email.trim() || !password} className="btn-primary w-full py-2.5">
+                {submitting ? 'Please wait…' : mode === 'signin' ? 'Sign In' : invitePreview ? 'Join team' : 'Create Account'}
+              </button>
+            </form>
           </div>
         )}
 
