@@ -17,6 +17,8 @@
 import { createClient } from '@/lib/supabase'
 
 export interface CurrentOperatorMember {
+  userId:       string
+  userEmail:    string | null
   operatorId:   string
   operatorSlug: string
   operatorName: string
@@ -73,6 +75,8 @@ export async function getCurrentOperatorMember(): Promise<CurrentOperatorMember 
   if (!operator) return null
 
   return {
+    userId:       user.id,
+    userEmail:    user.email ?? null,
     operatorId:   operator.id,
     operatorSlug: operator.slug,
     operatorName: operator.name,
@@ -116,7 +120,7 @@ export async function completeOperatorSetup(input: CompleteSetupInput): Promise<
 
   const { error: memberError } = await supabase
     .from('operator_members')
-    .insert({ user_id: user.id, operator_id: operator.id, role: 'owner' })
+    .insert({ user_id: user.id, operator_id: operator.id, role: 'owner', email: user.email })
 
   if (memberError) {
     // The operator record was created but the membership link failed —
@@ -126,4 +130,25 @@ export async function completeOperatorSetup(input: CompleteSetupInput): Promise<
       `${memberError.message}. Contact support rather than trying to create it again.`
     )
   }
+}
+
+export interface UpdateOperatorProfileInput {
+  name?: string
+  governingLawState?: string
+  governingLawCounty?: string | null
+}
+
+/** Edits the organization's own profile — name and governing law. Relies
+ * entirely on the existing operators_update_own RLS policy
+ * (011_m5_rls_tighten.sql) to restrict this to the caller's own
+ * operator; no separate authorization check needed here. */
+export async function updateOperatorProfile(operatorId: string, input: UpdateOperatorProfileInput): Promise<void> {
+  const supabase = createClient()
+  const patch: Record<string, unknown> = {}
+  if (input.name               !== undefined) patch.name                 = input.name.trim()
+  if (input.governingLawState  !== undefined) patch.governing_law_state  = input.governingLawState.trim()
+  if (input.governingLawCounty !== undefined) patch.governing_law_county = input.governingLawCounty?.trim() || null
+
+  const { error } = await supabase.from('operators').update(patch).eq('id', operatorId)
+  if (error) throw new Error(`update operator profile: ${error.message}`)
 }

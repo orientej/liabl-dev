@@ -10,14 +10,15 @@ import IncidentTab      from '@/components/operator/IncidentTab'
 import MobileTab        from '@/components/operator/MobileTab'
 import NotificationTab  from '@/components/operator/NotificationTab'
 import MultiLocationTab from '@/components/operator/MultiLocationTab'
+import SettingsTab      from '@/components/operator/SettingsTab'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert,
-  IconAuditTrail, IconLocation, IconMobile,
+  IconAuditTrail, IconLocation, IconMobile, IconUserGroup,
 } from '@/components/icons'
 
-type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'
+type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'
 
 export default function OperatorPage() {
   const router = useRouter()
@@ -64,6 +65,7 @@ export default function OperatorPage() {
     { key:'notifications', label:'Notifications',  Icon: IconAuditTrail },
     { key:'multilocation', label:'Multi-Location', Icon: IconLocation   },
     { key:'mobile',        label:'Mobile App',     Icon: IconMobile     },
+    { key:'settings',      label:'Settings',       Icon: IconUserGroup  },
   ]
 
   return (
@@ -110,6 +112,7 @@ export default function OperatorPage() {
         {tab === 'notifications' && <NotificationTab />}
         {tab === 'multilocation' && <MultiLocationTab />}
         {tab === 'mobile'        && <MobileTab />}
+        {tab === 'settings'      && <SettingsTab />}
       </div>
     </div>
   )

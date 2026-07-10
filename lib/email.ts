@@ -60,6 +60,41 @@ export async function sendWaiverConfirmationEmail(input: WaiverConfirmationInput
   if (error) throw new Error(`resend: ${error.message}`)
 }
 
+export interface TeamInviteInput {
+  to: string
+  operatorName: string
+  inviterName: string
+  role: 'owner' | 'staff'
+  inviteUrl: string
+}
+
+export async function sendTeamInviteEmail(input: TeamInviteInput): Promise<void> {
+  const { error } = await getClient().emails.send({
+    from: FROM_ADDRESS,
+    to: input.to,
+    subject: `${input.inviterName} invited you to join ${input.operatorName} on LIABL`,
+    html: `
+      <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        <h2 style="font-size: 18px;">You've been invited to ${escapeHtml(input.operatorName)}</h2>
+        <p style="font-size: 14px; color: #444; line-height: 1.5;">
+          ${escapeHtml(input.inviterName)} invited you to join <strong>${escapeHtml(input.operatorName)}</strong>
+          on LIABL as ${input.role === 'owner' ? 'an owner' : 'a staff member'}.
+        </p>
+        <p style="margin: 24px 0;">
+          <a href="${input.inviteUrl}" style="background: #4B2ACF; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">
+            Accept invitation
+          </a>
+        </p>
+        <p style="font-size: 12px; color: #888;">
+          This invitation expires in 7 days. If you weren't expecting this, you can safely ignore it.
+        </p>
+      </div>
+    `,
+  })
+
+  if (error) throw new Error(`resend: ${error.message}`)
+}
+
 function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] || 'there'
 }
