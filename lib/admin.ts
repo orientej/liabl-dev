@@ -127,3 +127,38 @@ export async function updateSetting(key: string, value: unknown): Promise<void> 
   const body = await res.json()
   if (!res.ok) throw new Error(body.error ?? 'Failed to update setting')
 }
+
+export interface GlobalAdmin {
+  id: string
+  user_id: string
+  email: string
+  created_at: string
+  alsoOperatorMember: { role: string; operatorName: string } | null
+}
+
+export async function fetchAdmins(): Promise<GlobalAdmin[]> {
+  const res = await fetch('/api/admin/admins')
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error ?? 'Failed to load admins')
+  return body.admins
+}
+
+export interface AddAdminResult {
+  added: boolean
+  via: 'existing_operator_account' | 'new_invite' | 'orphaned_account_lookup'
+}
+
+export async function addAdmin(email: string): Promise<AddAdminResult> {
+  const res = await fetch('/api/admin/admins', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error ?? 'Failed to add admin')
+  return body
+}
+
+export async function removeAdmin(id: string): Promise<void> {
+  const res = await fetch(`/api/admin/admins/${id}`, { method: 'DELETE' })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error ?? 'Failed to remove admin')
+}

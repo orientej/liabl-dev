@@ -6,11 +6,12 @@ import AccountsTab from '@/components/admin/AccountsTab'
 import UsersTab from '@/components/admin/UsersTab'
 import ReportingTab from '@/components/admin/ReportingTab'
 import SettingsTab from '@/components/admin/SettingsTab'
+import AdminsTab from '@/components/admin/AdminsTab'
 import { getCurrentAdmin } from '@/lib/admin-auth'
 import { signOut } from '@/lib/auth'
-import { IconUserGroup, IconAnalytics, IconTemplate, IconShield } from '@/components/icons'
+import { IconUserGroup, IconAnalytics, IconTemplate, IconShield, IconUser } from '@/components/icons'
 
-type Tab = 'accounts' | 'users' | 'reporting' | 'settings'
+type Tab = 'accounts' | 'users' | 'reporting' | 'settings' | 'admins'
 
 export default function AdminPage() {
   const router = useRouter()
@@ -37,6 +38,7 @@ export default function AdminPage() {
   const tabs: { key: Tab; label: string; Icon: React.ComponentType<{ size?: number; color?: string }> }[] = [
     { key: 'accounts',  label: 'Accounts',  Icon: IconShield     },
     { key: 'users',     label: 'Users',     Icon: IconUserGroup  },
+    { key: 'admins',    label: 'Admins',    Icon: IconUser       },
     { key: 'reporting', label: 'Reporting', Icon: IconAnalytics  },
     { key: 'settings',  label: 'Settings',  Icon: IconTemplate   },
   ]
@@ -62,6 +64,7 @@ export default function AdminPage() {
       <div className="max-w-5xl mx-auto px-5 py-8">
         {tab === 'accounts'  && <AccountsTab />}
         {tab === 'users'     && <UsersTab />}
+        {tab === 'admins'    && <AdminsTab />}
         {tab === 'reporting' && <ReportingTab />}
         {tab === 'settings'  && <SettingsTab />}
       </div>
