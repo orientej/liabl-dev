@@ -119,18 +119,43 @@ async function resolveOperatorSlugForCurrentUser(supabase: SupabaseClient): Prom
 }
 
 /**
+ * Resolves which operator a given check-in session belongs to — the
+ * piece that was actually missing for multi-operator participant
+ * signing. The participant flow is never authenticated
+ * (resolveOperatorSlugForCurrentUser can't apply — there's no user to
+ * resolve), and the session itself is the only thing that says which
+ * operator this check-in is for. Returns null for an invalid/unknown
+ * session id, which callers should treat as a real error, not silently
+ * fall back to the default operator.
+ */
+export async function resolveOperatorSlugForSession(supabase: SupabaseClient, sessionId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('operators(slug)')
+    .eq('id', sessionId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  const operator = Array.isArray(data.operators) ? data.operators[0] : data.operators
+  return operator?.slug ?? null
+}
+
+/**
  * Fetches everything needed to render the activity picker and generate
  * clauses for one operator. Call once (e.g. on flow mount) and reuse the
  * result — this data changes rarely and there's no reason to refetch it
  * per step.
  *
  * operatorSlug is optional: pass it explicitly to target a specific
- * operator, or omit it to resolve from the current authenticated user's
- * operator_members row (falling back to the single default operator if
- * there's no logged-in user — e.g. the participant flow). This means
- * dashboard call sites that already call fetchEngineData(supabase) with
- * no slug automatically respect whichever operator is actually logged
- * in, without needing to be touched themselves.
+ * operator (e.g. the participant flow resolves this from the actual
+ * session being checked into, via resolveOperatorSlugForSession — it
+ * must NOT rely on this function's own fallback chain, since an
+ * anonymous participant has no logged-in user to resolve and the
+ * fallback below would silently show the wrong operator's content). If
+ * omitted, resolves from the current authenticated user's
+ * operator_members row instead (the operator-dashboard case), falling
+ * back to the single default operator only when neither an explicit
+ * slug nor a logged-in user is available at all.
  */
 export async function fetchEngineData(
   supabase: SupabaseClient,

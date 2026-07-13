@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels } from '@/lib/document-engine'
+import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels, resolveOperatorSlugForSession } from '@/lib/document-engine'
 import { saveDraft, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
@@ -99,15 +99,37 @@ export default function ParticipantFlow() {
     }
     onFlowStart()
 
-    // v25 M4 — fetch this operator's activities/clauses once at flow
-    // start, so they're ready by the time the participant reaches the
-    // Activity step. Single-operator V1 still, so no session->operator
-    // resolution here yet (fetchEngineData defaults to the one operator
-    // that exists) — that becomes necessary once a second operator does.
+    // v25 fix — this was the actual bug: every anonymous participant,
+    // regardless of which operator's session they scanned via QR code,
+    // was silently shown Desert Ridge Adventures' content. Nothing here
+    // ever consulted the session's own operator_id — fetchEngineData's
+    // fallback chain (logged-in user -> default operator) can never
+    // reach the right answer for an anonymous participant, since
+    // there's no logged-in user to resolve and the "default operator"
+    // is exactly the wrong thing to fall back to silently. The session
+    // itself is the only thing that says which operator this check-in
+    // is actually for.
     async function loadEngineData() {
       try {
         const { createClient } = await import('@/lib/supabase')
-        const data = await fetchEngineData(createClient())
+        const supabase = createClient()
+
+        let operatorSlug: string | undefined
+        if (sessionId !== DEMO_SESSION_FALLBACK) {
+          const resolved = await resolveOperatorSlugForSession(supabase, sessionId)
+          if (!resolved) {
+            // A genuinely bad/expired link should say so, not silently
+            // fall back to showing some OTHER operator's activities and
+            // questions under a mismatched name.
+            throw new Error('This check-in link is invalid or has expired. Please ask staff for a new link or QR code.')
+          }
+          operatorSlug = resolved
+        }
+        // sessionId === DEMO_SESSION_FALLBACK (bare /participant visit,
+        // no session param) intentionally leaves operatorSlug undefined,
+        // preserving the existing investor-demo fallback behavior.
+
+        const data = await fetchEngineData(supabase, operatorSlug)
         setEngineData(data)
       } catch (err) {
         console.error('[ParticipantFlow] engine data load failed:', err)
@@ -394,10 +416,21 @@ export default function ParticipantFlow() {
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
-      <PageNav badge="Participant" operatorName="Desert Ridge Adventures" operatorAccent="#4B2ACF" />
+      <PageNav badge="Participant" operatorName={engineData?.operatorName} operatorAccent="#4B2ACF" />
       <div className="flex-1 flex flex-col items-center px-4 py-8">
         <div className="w-full max-w-lg">
-          {!checkedDraft ? null : draftPrompt ? (
+          {!checkedDraft ? null : engineError ? (
+            // v25 fix — engineError was previously set but never
+            // rendered anywhere, so any engine-data failure (including
+            // the new "invalid session link" check above) left the
+            // participant stuck on an indefinite loading state at the
+            // Activity step, with the real reason visible only in the
+            // browser console.
+            <div className="card text-center">
+              <h2 className="font-serif text-xl mb-2" style={{ letterSpacing:'-0.01em' }}>Can&apos;t load this check-in link</h2>
+              <p className="text-sm text-gray-500">{engineError}</p>
+            </div>
+          ) : draftPrompt ? (
             // v25 M6 — never silently restore. Whoever's holding the
             // tablet sees exactly whose in-progress waiver this is and
             // decides — the safety mechanism for a shared check-in
