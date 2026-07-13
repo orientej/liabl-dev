@@ -10,6 +10,7 @@
 // throws. Audit logging must never fail a signing flow.
 
 import { createClient } from '@/lib/supabase'
+import { createClient as createAnonClient } from '@/lib/supabase-anon'
 
 // ── Event types (string union for autocomplete, not an exhaustive enum) ───────
 export type AuditEventType =
@@ -51,7 +52,15 @@ export interface AuditEvent {
  */
 export async function logEvent(input: AuditEventInput): Promise<void> {
   try {
-    const supabase = createClient()
+    // v25 fix — genuinely anonymous client, not the shared session-
+    // syncing one. logEvent is only ever called from the participant
+    // flow (never authenticated), and audit_events_public_insert's
+    // policy already accepts any role — so this wasn't the cause of the
+    // reported RLS error, but using the same shared client here would
+    // still mean a co-existing operator/admin session bleeds into what
+    // should be an anonymous participant's audit trail. Kept consistent
+    // with the same fix applied to the actual signing path.
+    const supabase = createAnonClient()
     const { error } = await supabase.from('audit_events').insert({
       event_type:  input.eventType,
       session_id:  input.sessionId,

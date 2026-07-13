@@ -111,7 +111,7 @@ export default function ParticipantFlow() {
     // is actually for.
     async function loadEngineData() {
       try {
-        const { createClient } = await import('@/lib/supabase')
+        const { createClient } = await import('@/lib/supabase-anon')
         const supabase = createClient()
 
         let operatorSlug: string | undefined
@@ -232,7 +232,16 @@ export default function ParticipantFlow() {
     }
 
     try {
-      const { createClient } = await import('@/lib/supabase')
+      // v25 fix — the genuinely anonymous client, not lib/supabase.ts's
+      // shared browser client. That one is designed to sync with
+      // whatever Supabase session cookie exists on the domain, which
+      // would make a participant's signing request run as an
+      // AUTHENTICATED user (not truly anonymous) if the same browser
+      // also has an operator or admin session open elsewhere — causing
+      // exactly the "row violates row-level security policy for table
+      // participants" error, since those RLS policies specifically
+      // require auth.role() = 'anon'.
+      const { createClient } = await import('@/lib/supabase-anon')
       const supabase = createClient()
       const full = answers as ParticipantAnswers
 
