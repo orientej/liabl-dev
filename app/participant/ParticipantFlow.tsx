@@ -502,6 +502,11 @@ export default function ParticipantFlow() {
                         <p className="text-amber-800 text-sm mb-3">
                           Please try again, or ask a staff member for help.
                         </p>
+                        {saveState.kind === 'retryable_error' && (
+                          <p className="text-xs text-amber-700 font-mono bg-amber-100/60 rounded-lg px-2 py-1.5 mb-3 break-words">
+                            {saveState.lastError}
+                          </p>
+                        )}
                         <button onClick={retrySave} className="btn-primary text-sm">Try again</button>
                         <p className="text-xs text-amber-700 mt-2">Attempt {saveState.attempts} of 3</p>
                       </div>
