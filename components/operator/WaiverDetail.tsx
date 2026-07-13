@@ -20,6 +20,7 @@ export interface WaiverDetailRow {
   ip_address: string | null
   document_hash: string | null
   pdf_path: string | null
+  redacted_at: string | null
   answers: Record<string, unknown> | null
   clauses: WaiverClause[] | null
   session_id: string | null
@@ -81,6 +82,9 @@ export default function WaiverDetail({
 
   const [pdfLoading, setPdfLoading] = useState(false)
   const [pdfError,   setPdfError]   = useState<string | null>(null)
+  const [emailLoading, setEmailLoading] = useState(false)
+  const [emailSent,    setEmailSent]    = useState(false)
+  const [emailError,   setEmailError]   = useState<string | null>(null)
 
   // v25 M6 security review — replaces opening a stored long-lived signed
   // URL directly. Generates a fresh, short-lived one on demand instead;
@@ -97,6 +101,27 @@ export default function WaiverDetail({
       setPdfError(e instanceof Error ? e.message : 'Failed to open document')
     } finally {
       setPdfLoading(false)
+    }
+  }
+
+  // Reuses the same route the participant flow already fires
+  // automatically right after signing (app/api/waivers/[id]/send-
+  // confirmation) — this button just lets staff trigger it again on
+  // demand, e.g. if a participant says they never received it.
+  async function sendEmailCopy() {
+    setEmailError(null)
+    setEmailSent(false)
+    setEmailLoading(true)
+    try {
+      const res = await fetch(`/api/waivers/${row.id}/send-confirmation`, { method: 'POST' })
+      const body = await res.json()
+      if (!res.ok || !body.sent) throw new Error(body.error ?? body.reason ?? 'Failed to send email')
+      setEmailSent(true)
+      setTimeout(() => setEmailSent(false), 4000)
+    } catch (e) {
+      setEmailError(e instanceof Error ? e.message : 'Failed to send email')
+    } finally {
+      setEmailLoading(false)
     }
   }
 
@@ -314,16 +339,36 @@ export default function WaiverDetail({
                   ↓ Download PDF
                 </button>
               )}
-              <button disabled className="text-xs px-3 py-2 rounded-xl border border-black/20 text-gray-400 flex-1 cursor-not-allowed"
-                title="Sent automatically to the participant at signing">
-                ✉ Email copy
-              </button>
+              {email ? (
+                <button
+                  onClick={sendEmailCopy}
+                  disabled={emailLoading}
+                  className="text-xs px-3 py-2 rounded-xl border border-brand/30 text-brand bg-brand/5 hover:bg-brand/10 transition-colors flex-1 disabled:opacity-50"
+                  title="Resend the confirmation email to the participant"
+                >
+                  {emailLoading ? 'Sending…' : emailSent ? 'Sent ✓' : '✉ Email copy'}
+                </button>
+              ) : (
+                <button disabled className="text-xs px-3 py-2 rounded-xl border border-black/20 text-gray-400 flex-1 cursor-not-allowed"
+                  title="No participant email on file">
+                  ✉ Email copy
+                </button>
+              )}
             </div>
             {pdfError && (
               <p className="text-xs text-red-500 text-center">{pdfError}</p>
             )}
+            {emailError && (
+              <p className="text-xs text-red-500 text-center">{emailError}</p>
+            )}
             {!row.pdf_path && !pdfError && (
-              <p className="text-xs text-gray-400 text-center">No sealed document on file — not yet sealed, or redacted after the 90-day retention window</p>
+              <p className="text-xs text-gray-400 text-center">
+                {row.redacted_at
+                  ? `Redacted on ${new Date(row.redacted_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} per the 90-day retention policy.`
+                  : row.signed_at
+                  ? 'Document sealing failed for this waiver — the signature itself is valid and on file, but no PDF was generated. Contact support if this persists.'
+                  : 'Waiver not yet signed.'}
+              </p>
             )}
           </div>
         </div>

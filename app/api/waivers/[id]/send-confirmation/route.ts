@@ -11,14 +11,24 @@
 // to something that actually happened.
 //
 // Uses the admin (service-role) client rather than the caller's session
-// because the caller here is the anonymous participant flow — the same
-// participant who has no ongoing SELECT access to the waivers table by
-// RLS design (see 011_m5_rls_tighten.sql). This route needs to read the
-// waiver it just created regardless, which is exactly the kind of
-// narrow, legitimate system operation the service-role client is for —
-// it does not accept or trust anything else from the request body.
+// because the ORIGINAL caller here is the anonymous participant flow —
+// no ongoing SELECT access to the waivers table by RLS design (see
+// 011_m5_rls_tighten.sql). This route needs to read the waiver it just
+// created regardless, which is exactly the kind of narrow, legitimate
+// system operation the service-role client is for.
+//
+// Now also called from the operator dashboard's "Email copy" button
+// (an authenticated context) — which is why there's an authorization
+// check below that wasn't needed when this was participant-flow-only.
+// Without it, any operator's staff member could trigger a resend for
+// ANY other operator's waiver just by knowing its id — not a data leak
+// (the email still only goes to the participant already on file), but a
+// real nuisance/abuse vector one operator's staff could aim at another
+// operator's customers. An anonymous caller (the original fire-and-
+// forget case right after signing) is unaffected by this check.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient as createServerClient } from '@/lib/supabase-server'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { sendWaiverConfirmationEmail } from '@/lib/email'
 
@@ -49,6 +59,24 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // created (see ParticipantFlow.tsx's attemptSave, which only fires
     // this route after full success).
     return NextResponse.json({ sent: false, reason: 'waiver not found or not signed' }, { status: 404 })
+  }
+
+  // Authorization check — only applies to authenticated callers (the
+  // dashboard). An unauthenticated request (the original participant
+  // fire-and-forget call) has no operator context to check against and
+  // is allowed through as before.
+  const sessionClient = createServerClient()
+  const { data: { user } } = await sessionClient.auth.getUser()
+  if (user) {
+    const { data: membership } = await supabase
+      .from('operator_members')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('operator_id', waiver.operator_id)
+      .maybeSingle()
+    if (!membership) {
+      return NextResponse.json({ error: 'Not authorized to send this waiver\u2019s confirmation email' }, { status: 403 })
+    }
   }
 
   const participant = Array.isArray(waiver.participants) ? waiver.participants[0] : waiver.participants

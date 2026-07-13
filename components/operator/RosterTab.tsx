@@ -20,6 +20,7 @@ interface WaiverRow {
   ip_address: string | null
   document_hash: string | null    // null until Milestone 2 hashing lands
   pdf_path: string | null          // null until sealed, or after 90-day retention redaction
+  redacted_at: string | null       // set only when the 90-day retention job actually redacted this waiver
   answers: Record<string, unknown> | null
   clauses: WaiverClause[] | null
   participants: Participant | null
@@ -40,11 +41,11 @@ type Filter = 'all' | 'signed' | 'pending'
 // Visually flagged as sample data — never silently mixed with real rows.
 
 const DEMO: WaiverRow[] = [
-  { id:'demo-1', session_id:null, signed_at:'2026-05-26T08:42:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_path:null, answers:null, clauses:null, participants:{ full_name:'Jordan Rivera', email:'j@email.com' }, sessions:null },
-  { id:'demo-2', session_id:null, signed_at:'2026-05-26T08:51:00Z', activity_key:'hike',   is_minor:true,  ip_address:null, document_hash:null, pdf_path:null, answers:null, clauses:null, participants:{ full_name:'Mia Chen',      email:'m@email.com' }, sessions:null },
-  { id:'demo-3', session_id:null, signed_at:'2026-05-26T08:53:00Z', activity_key:'atv',    is_minor:false, ip_address:null, document_hash:null, pdf_path:null, answers:null, clauses:null, participants:{ full_name:'Tyler Brooks',  email:'t@email.com' }, sessions:null },
-  { id:'demo-4', session_id:null, signed_at:null,                   activity_key:'climb',  is_minor:false, ip_address:null, document_hash:null, pdf_path:null, answers:null, clauses:null, participants:{ full_name:'Sasha Kim',     email:'s@email.com' }, sessions:null },
-  { id:'demo-5', session_id:null, signed_at:'2026-05-26T08:58:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_path:null, answers:null, clauses:null, participants:{ full_name:'Omar Hassan',   email:'o@email.com' }, sessions:null },
+  { id:'demo-1', session_id:null, signed_at:'2026-05-26T08:42:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_path:null, redacted_at:null, answers:null, clauses:null, participants:{ full_name:'Jordan Rivera', email:'j@email.com' }, sessions:null },
+  { id:'demo-2', session_id:null, signed_at:'2026-05-26T08:51:00Z', activity_key:'hike',   is_minor:true,  ip_address:null, document_hash:null, pdf_path:null, redacted_at:null, answers:null, clauses:null, participants:{ full_name:'Mia Chen',      email:'m@email.com' }, sessions:null },
+  { id:'demo-3', session_id:null, signed_at:'2026-05-26T08:53:00Z', activity_key:'atv',    is_minor:false, ip_address:null, document_hash:null, pdf_path:null, redacted_at:null, answers:null, clauses:null, participants:{ full_name:'Tyler Brooks',  email:'t@email.com' }, sessions:null },
+  { id:'demo-4', session_id:null, signed_at:null,                   activity_key:'climb',  is_minor:false, ip_address:null, document_hash:null, pdf_path:null, redacted_at:null, answers:null, clauses:null, participants:{ full_name:'Sasha Kim',     email:'s@email.com' }, sessions:null },
+  { id:'demo-5', session_id:null, signed_at:'2026-05-26T08:58:00Z', activity_key:'kayak',  is_minor:false, ip_address:null, document_hash:null, pdf_path:null, redacted_at:null, answers:null, clauses:null, participants:{ full_name:'Omar Hassan',   email:'o@email.com' }, sessions:null },
 ]
 
 // Fallback shown only when real waivers exist but none carry session data yet
@@ -114,7 +115,7 @@ export default function RosterTab() {
         // can render real data without a second per-row fetch on expand.
         const { data } = await supabase
           .from('waivers')
-          .select('id, session_id, signed_at, activity_key, is_minor, ip_address, document_hash, pdf_path, answers, clauses, participants(full_name, email), sessions(session_ref, session_time)')
+          .select('id, session_id, signed_at, activity_key, is_minor, ip_address, document_hash, pdf_path, redacted_at, answers, clauses, participants(full_name, email), sessions(session_ref, session_time)')
           .order('created_at', { ascending: true })
           .limit(50)
 
@@ -128,6 +129,7 @@ export default function RosterTab() {
             ip_address:    row.ip_address as string | null,
             document_hash: row.document_hash as string | null,
             pdf_path:      row.pdf_path as string | null,
+            redacted_at:   row.redacted_at as string | null,
             answers:       row.answers as Record<string, unknown> | null,
             clauses:       row.clauses as WaiverClause[] | null,
             participants:  Array.isArray(row.participants)
