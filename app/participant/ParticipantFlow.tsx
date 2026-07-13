@@ -40,6 +40,7 @@ export default function ParticipantFlow() {
   const [pendingSignature, setPendingSignature] = useState<string | null>(null)
   const [engineData,   setEngineData]   = useState<EngineData | null>(null)
   const [engineError,  setEngineError]  = useState<string | null>(null)
+  const [sessionInfo,  setSessionInfo]  = useState<{ time: string | null; ref: string | null } | null>(null)
 
   // v25 M6 — session recovery. checkedDraft gates the very first render
   // so we never flash the empty entry screen before knowing whether a
@@ -124,6 +125,19 @@ export default function ParticipantFlow() {
             throw new Error('This check-in link is invalid or has expired. Please ask staff for a new link or QR code.')
           }
           operatorSlug = resolved
+
+          // v25 fix — StepEntry's welcome text had its own separate
+          // hardcoded "9:00 AM", the same class of bug as the operator
+          // name — fetched here alongside the resolution above rather
+          // than adding a second round-trip.
+          const { data: sessionRow } = await supabase
+            .from('sessions')
+            .select('session_time, session_ref')
+            .eq('id', sessionId)
+            .maybeSingle()
+          if (sessionRow) {
+            setSessionInfo({ time: sessionRow.session_time, ref: sessionRow.session_ref })
+          }
         }
         // sessionId === DEMO_SESSION_FALLBACK (bare /participant visit,
         // no session param) intentionally leaves operatorSlug undefined,
@@ -471,7 +485,7 @@ export default function ParticipantFlow() {
           )}
 
           <div className="animate-fade-up" key={step}>
-            {step === 0 && <StepEntry     onNext={() => next()} />}
+            {step === 0 && <StepEntry onNext={() => next()} operatorName={engineData?.operatorName} sessionTime={sessionInfo?.time ?? null} />}
             {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} />}
             {step === 2 && <StepActivity  activities={engineData?.activities ?? []} onNext={(v) => next(v)} onBack={prev} />}
             {step === 3 && <StepHealth    onNext={(v) => next(v)} onBack={prev} answers={answers} labels={labels} />}
