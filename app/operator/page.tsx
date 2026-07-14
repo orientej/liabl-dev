@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Logo from '@/components/Logo'
 import PageNav from '@/components/PageNav'
@@ -14,12 +14,21 @@ import SettingsTab      from '@/components/operator/SettingsTab'
 import SessionsTab      from '@/components/operator/SessionsTab'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
+import { IMPERSONATION_FLAG_KEY } from '@/lib/supabase'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert,
   IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket,
 } from '@/components/icons'
 
 type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
+
+const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
+
+interface ImpersonationInfo {
+  targetEmail: string
+  operatorName: string
+  startedAt: number
+}
 
 export default function OperatorPage() {
   const router = useRouter()
@@ -31,8 +40,21 @@ export default function OperatorPage() {
   const [operatorName, setOperatorName] = useState('Loading…')
   const [billing, setBilling] = useState<BillingStatus | null>(null)
   const [suspended, setSuspended] = useState(false)
+  const [impersonation, setImpersonation] = useState<ImpersonationInfo | null>(null)
+  const [remainingLabel, setRemainingLabel] = useState('')
+  const exitingRef = useRef(false)
 
   useEffect(() => {
+    const isImpersonating = sessionStorage.getItem(IMPERSONATION_FLAG_KEY) === 'true'
+    if (isImpersonating) {
+      const startedAt = Number(sessionStorage.getItem('liabl_impersonation_started_at') ?? Date.now())
+      setImpersonation({
+        targetEmail: sessionStorage.getItem('liabl_impersonation_target_email') ?? '',
+        operatorName: sessionStorage.getItem('liabl_impersonation_operator_name') ?? '',
+        startedAt,
+      })
+    }
+
     (async () => {
       const member = await getCurrentOperatorMember()
       if (member) {
@@ -53,14 +75,71 @@ export default function OperatorPage() {
           // banner, and this is a soft-block feature, not a gate.
           console.error('[OperatorPage] billing status load failed:', e)
         }
-      } else {
+      } else if (!isImpersonating) {
         // Shouldn't happen — middleware already gates this route — but
         // fail safe by sending back to login rather than showing a
-        // dashboard with no known operator.
+        // dashboard with no known operator. Skipped while impersonating:
+        // getCurrentOperatorMember() reads the sessionStorage-backed
+        // session, which may not have resolved on the very first tick.
         router.replace('/operator/login')
       }
     })()
   }, [router])
+
+  // 30-minute auto-expiry, checked every 15s. Not relying on the
+  // Supabase access token's own expiry — that auto-refreshes and would
+  // happily keep an impersonated session alive indefinitely otherwise.
+  useEffect(() => {
+    if (!impersonation) return
+
+    const tick = () => {
+      const elapsed = Date.now() - impersonation.startedAt
+      const remaining = IMPERSONATION_LIMIT_MS - elapsed
+      if (remaining <= 0) {
+        exitImpersonation('expired')
+        return
+      }
+      const mins = Math.floor(remaining / 60000)
+      const secs = Math.floor((remaining % 60000) / 1000)
+      setRemainingLabel(`${mins}:${secs.toString().padStart(2, '0')}`)
+    }
+
+    tick()
+    const interval = setInterval(tick, 15000)
+    return () => clearInterval(interval)
+  }, [impersonation]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function exitImpersonation(reason: 'manual' | 'expired') {
+    if (exitingRef.current) return
+    exitingRef.current = true
+
+    const adminUserId  = sessionStorage.getItem('liabl_impersonation_admin_id')
+    const adminEmail   = sessionStorage.getItem('liabl_impersonation_admin_email')
+    const targetUserId = sessionStorage.getItem('liabl_impersonation_target_user_id')
+    const targetOperatorId = sessionStorage.getItem('liabl_impersonation_target_operator_id')
+    const startedAt = Number(sessionStorage.getItem('liabl_impersonation_started_at') ?? Date.now())
+
+    try {
+      await fetch('/api/admin/impersonate/end', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminUserId, adminEmail, targetUserId, targetOperatorId, reason,
+          durationSeconds: Math.round((Date.now() - startedAt) / 1000),
+        }),
+      })
+    } catch (e) {
+      console.error('[exitImpersonation] failed to log end event:', e)
+    }
+
+    sessionStorage.clear()
+    // This tab only ever held the impersonated session — the admin's
+    // own login was never touched and is safe in their original tab.
+    // Closing is the clean exit; window.close() only works on script-
+    // opened tabs, so fall back to a plain message if the browser blocks it.
+    window.close()
+    setImpersonation(null)
+    router.replace('/admin')
+  }
 
   async function handleSignOut() {
     await signOut()
@@ -83,6 +162,19 @@ export default function OperatorPage() {
     return (
       <div className="min-h-screen bg-surface">
         <PageNav badge="Operator" operatorName={operatorName} operatorAccent="#4B2ACF" onSignOut={handleSignOut} />
+        {impersonation && (
+          <div className="px-5 py-2.5 text-sm text-center font-medium bg-amber-100 text-amber-900 border-b-2 border-amber-400 flex items-center justify-center gap-3 flex-wrap">
+            <span>
+              You are viewing as <strong>{impersonation.targetEmail}</strong>
+              {impersonation.operatorName && <> ({impersonation.operatorName})</>}
+              {remainingLabel && <> — session ends in {remainingLabel}</>}
+            </span>
+            <button onClick={() => exitImpersonation('manual')}
+              className="px-3 py-1 rounded-lg bg-amber-900 text-white text-xs font-semibold hover:opacity-90">
+              Return to admin
+            </button>
+          </div>
+        )}
         <div className="max-w-md mx-auto px-4 py-24 text-center">
           <h1 className="font-serif text-2xl mb-3" style={{ letterSpacing:'-0.01em' }}>Account suspended</h1>
           <p className="text-sm text-gray-500">
@@ -96,6 +188,20 @@ export default function OperatorPage() {
   return (
     <div className="min-h-screen bg-surface">
       <PageNav badge="Operator" operatorName={operatorName} operatorAccent="#4B2ACF" onSignOut={handleSignOut} />
+
+      {impersonation && (
+        <div className="px-5 py-2.5 text-sm text-center font-medium bg-amber-100 text-amber-900 border-b-2 border-amber-400 flex items-center justify-center gap-3 flex-wrap">
+          <span>
+            You are viewing as <strong>{impersonation.targetEmail}</strong>
+            {impersonation.operatorName && <> ({impersonation.operatorName})</>}
+            {remainingLabel && <> — session ends in {remainingLabel}</>}
+          </span>
+          <button onClick={() => exitImpersonation('manual')}
+            className="px-3 py-1 rounded-lg bg-amber-900 text-white text-xs font-semibold hover:opacity-90">
+            Return to admin
+          </button>
+        </div>
+      )}
 
       {/* Usage banner — soft block by design: signing is never
           interrupted by this, it's purely a visible staff alert,

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { fetchUsers, updateUserRole, removeUser, type AdminUser } from '@/lib/admin'
+import { getCurrentAdmin } from '@/lib/admin-auth'
 
 export default function UsersTab() {
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -10,6 +11,8 @@ export default function UsersTab() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [adminId, setAdminId] = useState<string | null>(null)
+  const [adminEmail, setAdminEmail] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -23,7 +26,13 @@ export default function UsersTab() {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    refresh()
+    ;(async () => {
+      const admin = await getCurrentAdmin()
+      if (admin) { setAdminId(admin.userId); setAdminEmail(admin.email) }
+    })()
+  }, [refresh])
 
   async function changeRole(u: AdminUser, role: 'owner' | 'staff') {
     setBusyId(u.id)
@@ -47,6 +56,39 @@ export default function UsersTab() {
       await refresh()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to remove user')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Requests the one-time token server-side (properly authorized and
+  // audit-logged there), then opens the verification page in a NEW TAB —
+  // never touches this tab's own admin session. See lib/supabase.ts and
+  // app/operator/impersonate/page.tsx for why a new tab with its own
+  // sessionStorage is what keeps the two identities from colliding.
+  async function impersonate(u: AdminUser) {
+    setBusyId(u.id)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/admin/impersonate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId: u.id }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to start impersonation')
+
+      const params = new URLSearchParams({
+        token: body.tokenHash,
+        email: body.targetEmail,
+        operator: body.operatorName,
+        targetUserId: u.userId,
+        targetOperatorId: u.operatorId ?? '',
+        adminId: adminId ?? '',
+        adminEmail: adminEmail ?? '',
+      })
+      window.open(`/operator/impersonate?${params.toString()}`, '_blank')
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to start impersonation')
     } finally {
       setBusyId(null)
     }
@@ -95,6 +137,14 @@ export default function UsersTab() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => impersonate(u)}
+                disabled={busyId === u.id || u.operatorStatus === 'suspended'}
+                title={u.operatorStatus === 'suspended' ? "Can't impersonate a member of a suspended account" : 'Opens a new tab, logged in as this user'}
+                className="text-xs px-3 py-1.5 rounded-lg border border-brand/30 text-brand bg-brand/5 hover:bg-brand/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {busyId === u.id ? 'Starting…' : 'Impersonate'}
+              </button>
               <select
                 value={u.role}
                 disabled={busyId === u.id}

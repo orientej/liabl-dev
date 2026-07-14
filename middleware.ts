@@ -1,5 +1,6 @@
 // middleware.ts
 // v25 Milestone 5 — session refresh + route protection.
+// v25 Global Admin Console, impersonation phase — added a narrow carve-out.
 //
 // Two jobs, both required for cookie-based Supabase auth to work with
 // Next.js App Router:
@@ -17,11 +18,23 @@
 // currently sees data scoped by lib/document-engine.ts's application-
 // level lookup, not by anything the database itself would refuse to
 // hand back to a different query.
+//
+// Impersonation carve-out: an impersonated session lives ENTIRELY in
+// sessionStorage (lib/supabase.ts), never in a cookie — that's the whole
+// point, so it can't contaminate the admin's own cookie-based session in
+// their original tab. Middleware runs server-side and can only ever see
+// cookies, never sessionStorage, so it structurally cannot verify an
+// impersonated session. Both the verification page and the ?impersonating=1
+// marker on /operator are let through without a cookie present; the real
+// check happens client-side (app/operator/page.tsx reads sessionStorage)
+// and, more importantly, real authorization is enforced by RLS on every
+// actual data query regardless of what middleware does — this carve-out
+// only affects the early convenience redirect, not actual data access.
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_OPERATOR_PATHS = ['/operator/login']
+const PUBLIC_OPERATOR_PATHS = ['/operator/login', '/operator/impersonate']
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } })
@@ -53,7 +66,9 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
-  const isProtectedOperatorPath = path.startsWith('/operator') && !PUBLIC_OPERATOR_PATHS.includes(path)
+  const isImpersonationEntry = path === '/operator' && request.nextUrl.searchParams.get('impersonating') === '1'
+  const isProtectedOperatorPath =
+    path.startsWith('/operator') && !PUBLIC_OPERATOR_PATHS.includes(path) && !isImpersonationEntry
 
   if (isProtectedOperatorPath && !user) {
     const redirectUrl = new URL('/operator/login', request.url)
