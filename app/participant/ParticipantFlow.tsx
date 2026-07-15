@@ -488,7 +488,31 @@ export default function ParticipantFlow() {
             {step === 0 && <StepEntry onNext={() => next()} operatorName={engineData?.operatorName} sessionTime={sessionInfo?.time ?? null} />}
             {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} />}
             {step === 2 && <StepActivity  activities={engineData?.activities ?? []} onNext={(v) => next(v)} onBack={prev} />}
-            {step === 3 && <StepHealth    onNext={(v) => next(v)} onBack={prev} answers={answers} labels={labels} />}
+            {step === 3 && (
+              <StepHealth
+                onNext={(v) => next(v)}
+                onBack={prev}
+                answers={answers}
+                labels={labels}
+                questions={
+                  engineData
+                    ? engineData.questions.filter(q =>
+                        q.activityId === null ||
+                        q.activityId === engineData.activities.find(a => a.key === answers.activityKey)?.id
+                      )
+                    : []
+                }
+                clauseTitleByQuestionId={
+                  engineData
+                    ? Object.fromEntries(
+                        engineData.clauses
+                          .filter(c => c.questionId !== null)
+                          .map(c => [c.questionId as string, c.title])
+                      )
+                    : {}
+                }
+              />
+            )}
             {step === 4 && isMinor && (
               <StepGuardian minorName={answers.fullName ?? 'Minor'}
                 onNext={(v) => {

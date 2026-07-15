@@ -22,27 +22,30 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ActivityKey = string
 
-// v23 M1 fix #3 — multi-condition health disclosure
-// HealthStatus is an array; a participant can disclose multiple conditions
-// (e.g., both cardiac AND injury). Empty array = no known conditions.
+// v25 fix — StepHealth.tsx was rendering a hardcoded pair of checkboxes
+// (cardiac/injury) regardless of what questions an operator actually
+// configured via TemplateTab, and generateClauses() matched by comparing
+// against those two fixed values directly. Neither generalized to
+// arbitrary operator-authored questions, exactly the gap flagged (and
+// deliberately deferred) when TemplateTab's authoring side was built.
 //
-// NOTE: matching a disclosed condition to its clause currently works by
-// comparing this value directly against activity_clauses.key ('cardiac' /
-// 'injury') for the two seeded global health questions. That's a
-// deliberate simplification for this pass, preserving today's fixed
-// two-condition behavior — it doesn't yet generalize to arbitrary
-// operator-authored questions the way TemplateTab's UI implies. Full
-// answer-driven clause triggering (any question, any answer) is separate
-// follow-on work, not required to hit this milestone's exit criteria.
-export type HealthCondition = 'cardiac' | 'injury'
-export type HealthStatus = HealthCondition[]
-
+// questionResponses is the real answer map now: keyed by
+// activity_questions.id, valued by whatever the participant answered
+// (a yes_no question's triggering answer, a multiple-choice option, or
+// free text) — generateClauses() matches against this and each
+// question's own triggerValue, not a hardcoded key comparison.
+//
+// healthStatus is kept, now just a derived list of triggered clause
+// titles for RiskScore.tsx's existing risk-scoring logic, which already
+// treats it as a generic string | string[] (see components/RiskScore.tsx)
+// — no changes needed there.
 export interface ParticipantAnswers {
   fullName: string
   dob: string
   email: string
   activityKey: ActivityKey
-  healthStatus: HealthStatus
+  questionResponses: Record<string, string>
+  healthStatus?: string[]
   isMinor: boolean
   guardianName?: string
 }
@@ -289,8 +292,18 @@ export function generateClauses(data: EngineData, answers: ParticipantAnswers): 
   }
 
   const applicable = data.clauses.filter(c => {
-    if (c.activityId !== null && c.activityId !== activity.id) return false        // belongs to a different activity
-    if (c.questionId !== null && !answers.healthStatus?.includes(c.key as HealthCondition)) return false // conditional, not triggered
+    if (c.activityId !== null && c.activityId !== activity.id) return false // belongs to a different activity
+    if (c.questionId !== null) {
+      // Conditional clause — only include it if the linked question was
+      // actually answered with its own configured triggerValue. This is
+      // what makes an operator's own custom questions (added via
+      // TemplateTab) actually affect the generated waiver, not just the
+      // two originally-seeded health questions.
+      const question = data.questions.find(q => q.id === c.questionId)
+      if (!question) return false
+      const response = answers.questionResponses?.[question.id]
+      if (response === undefined || response !== question.triggerValue) return false
+    }
     return true
   })
 
