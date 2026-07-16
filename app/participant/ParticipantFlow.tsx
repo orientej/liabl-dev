@@ -357,11 +357,18 @@ export default function ParticipantFlow() {
 
         const { error: hashWriteError } = await supabase
           .from('waivers')
-          .update({ document_hash: sealResult.documentHash, pdf_path: sealResult.pdfPath })
+          .update({ document_hash: sealResult.documentHash, pdf_path: sealResult.pdfPath, seal_error: null })
           .eq('id', waiverId)
 
         if (hashWriteError) {
           console.error('[attemptSave] hash write-back failed:', hashWriteError.message)
+          // The PDF itself was generated and uploaded successfully here —
+          // it's just not linked to this row. Worth a different message
+          // than a generation/upload failure, since the file may exist
+          // as an orphan in Storage at sealResult.pdfPath.
+          await supabase.from('waivers')
+            .update({ seal_error: `Document was generated but failed to link: ${hashWriteError.message}` })
+            .eq('id', waiverId)
         }
 
         // ── Event 5: document.sealed ────────────────────────────────────────
@@ -378,7 +385,17 @@ export default function ParticipantFlow() {
           ipAddress: ipAddressRef.current,
         })
       } catch (sealErr) {
+        const message = sealErr instanceof Error ? sealErr.message : String(sealErr)
         console.error('[attemptSave] sealing failed (waiver saved, seal pending):', sealErr)
+        // Persist the real cause rather than only logging it — this is
+        // what makes it diagnosable from the operator dashboard
+        // afterward instead of requiring dev tools open at the exact
+        // moment a participant happens to hit this.
+        try {
+          await supabase.from('waivers').update({ seal_error: message }).eq('id', waiverId)
+        } catch (writeErr) {
+          console.error('[attemptSave] failed to persist seal_error itself:', writeErr)
+        }
         // No document.sealed event — WaiverDetail will show it as pending,
         // which is accurate.
       }

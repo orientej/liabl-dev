@@ -21,6 +21,7 @@ export interface WaiverDetailRow {
   document_hash: string | null
   pdf_path: string | null
   redacted_at: string | null
+  seal_error: string | null
   answers: Record<string, unknown> | null
   clauses: WaiverClause[] | null
   session_id: string | null
@@ -362,13 +363,20 @@ export default function WaiverDetail({
               <p className="text-xs text-red-500 text-center">{emailError}</p>
             )}
             {!row.pdf_path && !pdfError && (
-              <p className="text-xs text-gray-400 text-center">
-                {row.redacted_at
-                  ? `Redacted on ${new Date(row.redacted_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} per the 90-day retention policy.`
-                  : row.signed_at
-                  ? 'Document sealing failed for this waiver — the signature itself is valid and on file, but no PDF was generated. Contact support if this persists.'
-                  : 'Waiver not yet signed.'}
-              </p>
+              <div className="text-xs text-gray-400 text-center">
+                <p>
+                  {row.redacted_at
+                    ? `Redacted on ${new Date(row.redacted_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} per the 90-day retention policy.`
+                    : row.signed_at
+                    ? 'Document sealing failed for this waiver — the signature itself is valid and on file, but no PDF was generated.'
+                    : 'Waiver not yet signed.'}
+                </p>
+                {row.signed_at && !row.redacted_at && row.seal_error && (
+                  <p className="mt-1 font-mono bg-red-50 text-red-600 rounded-lg px-2 py-1.5 text-left break-words">
+                    {row.seal_error}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
