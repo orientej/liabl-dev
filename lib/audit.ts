@@ -19,6 +19,7 @@ export type AuditEventType =
   | 'document.viewed'
   | 'waiver.signed'
   | 'document.sealed'
+  | 'document.seal_failed'
 
 export interface AuditEventInput {
   eventType:  AuditEventType

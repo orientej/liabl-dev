@@ -362,22 +362,36 @@ export default function WaiverDetail({
             {emailError && (
               <p className="text-xs text-red-500 text-center">{emailError}</p>
             )}
-            {!row.pdf_path && !pdfError && (
-              <div className="text-xs text-gray-400 text-center">
-                <p>
-                  {row.redacted_at
-                    ? `Redacted on ${new Date(row.redacted_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} per the 90-day retention policy.`
-                    : row.signed_at
-                    ? 'Document sealing failed for this waiver — the signature itself is valid and on file, but no PDF was generated.'
-                    : 'Waiver not yet signed.'}
-                </p>
-                {row.signed_at && !row.redacted_at && row.seal_error && (
-                  <p className="mt-1 font-mono bg-red-50 text-red-600 rounded-lg px-2 py-1.5 text-left break-words">
-                    {row.seal_error}
+            {!row.pdf_path && !pdfError && (() => {
+              // Fallback source: if waivers.seal_error itself failed to
+              // write (the thing we're actively trying to diagnose),
+              // the same message may still have made it into
+              // audit_events via document.seal_failed, since that
+              // table's insert policy isn't role-gated the way
+              // waivers' update policies are.
+              const sealFailedEvent = auditEvents
+                .filter(e => e.eventType === 'document.seal_failed')
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+              const fallbackError = sealFailedEvent?.metadata?.error as string | undefined
+              const displayError = row.seal_error ?? fallbackError ?? null
+
+              return (
+                <div className="text-xs text-gray-400 text-center">
+                  <p>
+                    {row.redacted_at
+                      ? `Redacted on ${new Date(row.redacted_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })} per the 90-day retention policy.`
+                      : row.signed_at
+                      ? 'Document sealing failed for this waiver — the signature itself is valid and on file, but no PDF was generated.'
+                      : 'Waiver not yet signed.'}
                   </p>
-                )}
-              </div>
-            )}
+                  {row.signed_at && !row.redacted_at && displayError && (
+                    <p className="mt-1 font-mono bg-red-50 text-red-600 rounded-lg px-2 py-1.5 text-left break-words">
+                      {displayError}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         </div>
       </div>

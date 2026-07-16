@@ -366,9 +366,23 @@ export default function ParticipantFlow() {
           // it's just not linked to this row. Worth a different message
           // than a generation/upload failure, since the file may exist
           // as an orphan in Storage at sealResult.pdfPath.
-          await supabase.from('waivers')
-            .update({ seal_error: `Document was generated but failed to link: ${hashWriteError.message}` })
-            .eq('id', waiverId)
+          //
+          // Logged BOTH to waivers.seal_error and to audit_events —
+          // audit_events' insert policy is unconditional (with check
+          // (true)), not role-gated the way waivers' update policies
+          // are, so if the waivers write is what's silently failing,
+          // this second path still gets the real reason somewhere
+          // diagnosable.
+          const linkFailMessage = `Document was generated but failed to link: ${hashWriteError.message}`
+          await supabase.from('waivers').update({ seal_error: linkFailMessage }).eq('id', waiverId)
+          await logEvent({
+            eventType: 'document.seal_failed',
+            sessionId: resolvedSessionId,
+            waiverId,
+            operatorId: engineData.operatorId,
+            metadata: { error: linkFailMessage, stage: 'hash_writeback' },
+            ipAddress: ipAddressRef.current,
+          })
         }
 
         // ── Event 5: document.sealed ────────────────────────────────────────
@@ -387,14 +401,28 @@ export default function ParticipantFlow() {
       } catch (sealErr) {
         const message = sealErr instanceof Error ? sealErr.message : String(sealErr)
         console.error('[attemptSave] sealing failed (waiver saved, seal pending):', sealErr)
-        // Persist the real cause rather than only logging it — this is
-        // what makes it diagnosable from the operator dashboard
-        // afterward instead of requiring dev tools open at the exact
-        // moment a participant happens to hit this.
+        // Persist the real cause two ways: waivers.seal_error (for the
+        // dashboard's direct display) AND audit_events (a second,
+        // independent path — its insert policy is unconditional, not
+        // role-gated the way waivers' policies are, so if THAT write is
+        // what's silently failing, this still captures the real reason
+        // somewhere queryable).
         try {
           await supabase.from('waivers').update({ seal_error: message }).eq('id', waiverId)
         } catch (writeErr) {
           console.error('[attemptSave] failed to persist seal_error itself:', writeErr)
+        }
+        try {
+          await logEvent({
+            eventType: 'document.seal_failed',
+            sessionId: resolvedSessionId,
+            waiverId,
+            operatorId: engineData.operatorId,
+            metadata: { error: message, stage: 'seal' },
+            ipAddress: ipAddressRef.current,
+          })
+        } catch (logErr) {
+          console.error('[attemptSave] failed to log document.seal_failed:', logErr)
         }
         // No document.sealed event — WaiverDetail will show it as pending,
         // which is accurate.
