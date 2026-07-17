@@ -355,26 +355,30 @@ export default function ParticipantFlow() {
           signatureData: sigData,
         })
 
-        const { error: hashWriteError } = await supabase
-          .from('waivers')
-          .update({ document_hash: sealResult.documentHash, pdf_path: sealResult.pdfPath, seal_error: null })
-          .eq('id', waiverId)
+        // v25 fix — confirmed the direct anon UPDATE to waivers was the
+        // actual problem: PDFs were being generated and uploaded to
+        // Storage successfully, but this write silently affected zero
+        // rows with no thrown error, so pdf_path/document_hash never got
+        // linked. Routed through a service-role-backed API route
+        // instead, sidestepping the anon RLS path entirely — see
+        // app/api/waivers/[id]/seal-writeback/route.ts.
+        const writebackRes = await fetch(`/api/waivers/${waiverId}/seal-writeback`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ documentHash: sealResult.documentHash, pdfPath: sealResult.pdfPath }),
+        })
+        const writebackBody = await writebackRes.json().catch(() => ({}))
 
-        if (hashWriteError) {
-          console.error('[attemptSave] hash write-back failed:', hashWriteError.message)
+        if (!writebackRes.ok) {
+          console.error('[attemptSave] hash write-back failed:', writebackBody.error)
           // The PDF itself was generated and uploaded successfully here —
           // it's just not linked to this row. Worth a different message
           // than a generation/upload failure, since the file may exist
           // as an orphan in Storage at sealResult.pdfPath.
-          //
-          // Logged BOTH to waivers.seal_error and to audit_events —
-          // audit_events' insert policy is unconditional (with check
-          // (true)), not role-gated the way waivers' update policies
-          // are, so if the waivers write is what's silently failing,
-          // this second path still gets the real reason somewhere
-          // diagnosable.
-          const linkFailMessage = `Document was generated but failed to link: ${hashWriteError.message}`
-          await supabase.from('waivers').update({ seal_error: linkFailMessage }).eq('id', waiverId)
+          const linkFailMessage = `Document was generated but failed to link: ${writebackBody.error ?? 'unknown error'}`
+          await fetch(`/api/waivers/${waiverId}/seal-writeback`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sealError: linkFailMessage }),
+          }).catch(() => {})
           await logEvent({
             eventType: 'document.seal_failed',
             sessionId: resolvedSessionId,
@@ -401,14 +405,13 @@ export default function ParticipantFlow() {
       } catch (sealErr) {
         const message = sealErr instanceof Error ? sealErr.message : String(sealErr)
         console.error('[attemptSave] sealing failed (waiver saved, seal pending):', sealErr)
-        // Persist the real cause two ways: waivers.seal_error (for the
-        // dashboard's direct display) AND audit_events (a second,
-        // independent path — its insert policy is unconditional, not
-        // role-gated the way waivers' policies are, so if THAT write is
-        // what's silently failing, this still captures the real reason
-        // somewhere queryable).
+        // Same fix as the success path above — route through the
+        // service-role-backed route rather than a direct anon UPDATE.
         try {
-          await supabase.from('waivers').update({ seal_error: message }).eq('id', waiverId)
+          await fetch(`/api/waivers/${waiverId}/seal-writeback`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sealError: message }),
+          })
         } catch (writeErr) {
           console.error('[attemptSave] failed to persist seal_error itself:', writeErr)
         }
