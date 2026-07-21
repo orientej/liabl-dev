@@ -233,6 +233,9 @@ function SessionRow({ session, activities, expanded, onToggle, onDeleted, onErro
               <label className="block text-xs text-gray-500 mb-1">Check-in link</label>
               <div className="flex gap-2 mb-4">
                 <input readOnly value={url} className="form-input text-xs font-mono flex-1" onClick={e => (e.target as HTMLInputElement).select()} />
+                <button onClick={() => window.open(url, '_blank', 'noopener,noreferrer')} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-white shrink-0 whitespace-nowrap">
+                  View
+                </button>
                 <button onClick={copyLink} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-white shrink-0 whitespace-nowrap">
                   {copied ? 'Copied ✓' : 'Copy'}
                 </button>

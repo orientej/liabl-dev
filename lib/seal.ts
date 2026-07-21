@@ -120,6 +120,34 @@ function addPage(doc: PDFDocument): PDFPage {
   return doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
 }
 
+// v25 fix — replaces the narrower, one-off fix (the emoji -> '* ' swap
+// below) with a general one. StandardFonts.Helvetica/HelveticaBold/
+// Courier are all WinAnsi-encoded, and pdf-lib throws when asked to draw
+// any character outside that codepage. The emoji swap only fixed the
+// ONE hardcoded character that happened to be noticed — it left every
+// OTHER source of uncontrolled text unprotected: participant full names,
+// guardian names, and especially operator-authored clause titles/bodies
+// from TemplateTab, which can contain literally any Unicode a staff
+// member types in. Any of those could silently crash sealing for any
+// operator, not just the one that got manually patched.
+//
+// Checks each character against what the font can actually encode
+// (rather than hardcoding a rule set for which characters are "safe")
+// so this doesn't need updating every time a new problem character
+// shows up — it defers to pdf-lib's own encoding table.
+function sanitizeForPdf(text: string, font: PDFFont): string {
+  let result = ''
+  for (const char of text) {
+    try {
+      font.widthOfTextAtSize(char, 10)
+      result += char
+    } catch {
+      result += '?'
+    }
+  }
+  return result
+}
+
 async function drawText(
   page: PDFPage,
   text: string,
@@ -155,6 +183,24 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
   const fontBold     = await doc.embedFont(StandardFonts.HelveticaBold)
   const fontMono     = await doc.embedFont(StandardFonts.Courier)
   const brandColor   = rgb(0.294, 0.165, 0.812)  // #4B2ACF
+
+  // Sanitize every piece of user/operator-supplied text once, up front —
+  // participant-entered fields (name, email, guardian) and operator-
+  // authored clause content (TemplateTab) can contain any Unicode a
+  // person happens to type, and all three fonts above are WinAnsi-
+  // encoded. Doing this here, once, means no downstream drawText call
+  // needs to remember to do it itself.
+  const safe = {
+    fullName:      sanitizeForPdf(input.fullName, fontRegular),
+    email:         sanitizeForPdf(input.email, fontRegular),
+    guardianName:  input.guardianName ? sanitizeForPdf(input.guardianName, fontRegular) : null,
+    activityLabel: sanitizeForPdf(input.activityLabel, fontRegular),
+  }
+  const safeClauses = input.clauses.map(c => ({
+    ...c,
+    title: sanitizeForPdf(c.title, fontBold),
+    body:  sanitizeForPdf(c.body, fontRegular),
+  }))
 
   let page  = addPage(doc)
   let curY  = PAGE_HEIGHT - MARGIN
@@ -200,13 +246,13 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
   page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) }); nl()
 
   const participantFields: [string, string][] = [
-    ['Full name',   input.fullName],
-    ['Email',       input.email],
+    ['Full name',   safe.fullName],
+    ['Email',       safe.email],
     ['Date of birth', input.dob],
-    ['Activity',    `${input.activityLabel} (${input.activityKey})`],
+    ['Activity',    `${safe.activityLabel} (${input.activityKey})`],
     ['IP address',  input.ipAddress ?? 'not captured'],
     ['Minor',       input.isMinor ? 'Yes' : 'No'],
-    ...(input.isMinor && input.guardianName ? [['Guardian', input.guardianName] as [string, string]] : []),
+    ...(input.isMinor && safe.guardianName ? [['Guardian', safe.guardianName] as [string, string]] : []),
   ]
   for (const [label, value] of participantFields) {
     ensureSpace(LINE_HEIGHT)
@@ -221,8 +267,8 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
   await drawText(page, 'AGREED TERMS', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl()
   page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) }); nl()
 
-  for (let i = 0; i < input.clauses.length; i++) {
-    const clause = input.clauses[i]
+  for (let i = 0; i < safeClauses.length; i++) {
+    const clause = safeClauses[i]
     ensureSpace(LINE_HEIGHT * 2)
 
     // Clause title
@@ -249,7 +295,7 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
   page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) })
   nl()
   await drawText(page, 'ELECTRONIC SIGNATURE', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl(2)
-  await drawText(page, `By signing below, ${input.fullName} agrees to all terms above.`, MARGIN, curY, fontRegular, 8); nl(2)
+  await drawText(page, `By signing below, ${safe.fullName} agrees to all terms above.`, MARGIN, curY, fontRegular, 8); nl(2)
 
   // Embed signature image if it's a valid data-URL
   try {
@@ -282,7 +328,7 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
     nl()
   }
 
-  await drawText(page, `Signed: ${input.fullName}`, MARGIN, curY, fontBold, 9); nl()
+  await drawText(page, `Signed: ${safe.fullName}`, MARGIN, curY, fontBold, 9); nl()
   await drawText(page, `Date:   ${new Date(input.signedAt).toLocaleString()}`, MARGIN, curY, fontRegular, 8, rgb(0.4, 0.4, 0.4)); nl()
   if (input.ipAddress) {
     await drawText(page, `IP:     ${input.ipAddress}`, MARGIN, curY, fontMono, 8, rgb(0.5, 0.5, 0.5)); nl()

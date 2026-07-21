@@ -355,13 +355,38 @@ export default function ParticipantFlow() {
           signatureData: sigData,
         })
 
-        const { error: hashWriteError } = await supabase
-          .from('waivers')
-          .update({ document_hash: sealResult.documentHash, pdf_path: sealResult.pdfPath })
-          .eq('id', waiverId)
+        // v25 fix — confirmed the direct anon UPDATE to waivers was the
+        // actual problem: PDFs were being generated and uploaded to
+        // Storage successfully, but this write silently affected zero
+        // rows with no thrown error, so pdf_path/document_hash never got
+        // linked. Routed through a service-role-backed API route
+        // instead, sidestepping the anon RLS path entirely — see
+        // app/api/waivers/[id]/seal-writeback/route.ts.
+        const writebackRes = await fetch(`/api/waivers/${waiverId}/seal-writeback`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ documentHash: sealResult.documentHash, pdfPath: sealResult.pdfPath }),
+        })
+        const writebackBody = await writebackRes.json().catch(() => ({}))
 
-        if (hashWriteError) {
-          console.error('[attemptSave] hash write-back failed:', hashWriteError.message)
+        if (!writebackRes.ok) {
+          console.error('[attemptSave] hash write-back failed:', writebackBody.error)
+          // The PDF itself was generated and uploaded successfully here —
+          // it's just not linked to this row. Worth a different message
+          // than a generation/upload failure, since the file may exist
+          // as an orphan in Storage at sealResult.pdfPath.
+          const linkFailMessage = `Document was generated but failed to link: ${writebackBody.error ?? 'unknown error'}`
+          await fetch(`/api/waivers/${waiverId}/seal-writeback`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sealError: linkFailMessage }),
+          }).catch(() => {})
+          await logEvent({
+            eventType: 'document.seal_failed',
+            sessionId: resolvedSessionId,
+            waiverId,
+            operatorId: engineData.operatorId,
+            metadata: { error: linkFailMessage, stage: 'hash_writeback' },
+            ipAddress: ipAddressRef.current,
+          })
         }
 
         // ── Event 5: document.sealed ────────────────────────────────────────
@@ -378,7 +403,30 @@ export default function ParticipantFlow() {
           ipAddress: ipAddressRef.current,
         })
       } catch (sealErr) {
+        const message = sealErr instanceof Error ? sealErr.message : String(sealErr)
         console.error('[attemptSave] sealing failed (waiver saved, seal pending):', sealErr)
+        // Same fix as the success path above — route through the
+        // service-role-backed route rather than a direct anon UPDATE.
+        try {
+          await fetch(`/api/waivers/${waiverId}/seal-writeback`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sealError: message }),
+          })
+        } catch (writeErr) {
+          console.error('[attemptSave] failed to persist seal_error itself:', writeErr)
+        }
+        try {
+          await logEvent({
+            eventType: 'document.seal_failed',
+            sessionId: resolvedSessionId,
+            waiverId,
+            operatorId: engineData.operatorId,
+            metadata: { error: message, stage: 'seal' },
+            ipAddress: ipAddressRef.current,
+          })
+        } catch (logErr) {
+          console.error('[attemptSave] failed to log document.seal_failed:', logErr)
+        }
         // No document.sealed event — WaiverDetail will show it as pending,
         // which is accurate.
       }
@@ -488,7 +536,31 @@ export default function ParticipantFlow() {
             {step === 0 && <StepEntry onNext={() => next()} operatorName={engineData?.operatorName} sessionTime={sessionInfo?.time ?? null} />}
             {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} />}
             {step === 2 && <StepActivity  activities={engineData?.activities ?? []} onNext={(v) => next(v)} onBack={prev} />}
-            {step === 3 && <StepHealth    onNext={(v) => next(v)} onBack={prev} answers={answers} labels={labels} />}
+            {step === 3 && (
+              <StepHealth
+                onNext={(v) => next(v)}
+                onBack={prev}
+                answers={answers}
+                labels={labels}
+                questions={
+                  engineData
+                    ? engineData.questions.filter(q =>
+                        q.activityId === null ||
+                        q.activityId === engineData.activities.find(a => a.key === answers.activityKey)?.id
+                      )
+                    : []
+                }
+                clauseTitleByQuestionId={
+                  engineData
+                    ? Object.fromEntries(
+                        engineData.clauses
+                          .filter(c => c.questionId !== null)
+                          .map(c => [c.questionId as string, c.title])
+                      )
+                    : {}
+                }
+              />
+            )}
             {step === 4 && isMinor && (
               <StepGuardian minorName={answers.fullName ?? 'Minor'}
                 onNext={(v) => {
