@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import QRCode from 'qrcode'
 import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
-import { listSessions, createSession, deleteSession, type SessionRecord } from '@/lib/sessions'
+import { listSessions, createSession, deleteSession, listVersionsForActivity, setSessionPinnedVersion, type SessionRecord, type AvailableVersion } from '@/lib/sessions'
 
 export default function SessionsTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
@@ -73,7 +73,7 @@ export default function SessionsTab() {
           <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Today &amp; upcoming</div>
           <div className="space-y-2">
             {upcoming.map(s => (
-              <SessionRow key={s.id} session={s} activities={activities} expanded={expandedId === s.id}
+              <SessionRow key={s.id} session={s} activities={activities} operatorId={operatorId} expanded={expandedId === s.id}
                 onToggle={() => setExpandedId(expandedId === s.id ? null : s.id)}
                 onDeleted={refresh} onError={setActionError} />
             ))}
@@ -86,7 +86,7 @@ export default function SessionsTab() {
           <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Past</div>
           <div className="space-y-2">
             {past.map(s => (
-              <SessionRow key={s.id} session={s} activities={activities} expanded={expandedId === s.id}
+              <SessionRow key={s.id} session={s} activities={activities} operatorId={operatorId} expanded={expandedId === s.id}
                 onToggle={() => setExpandedId(expandedId === s.id ? null : s.id)}
                 onDeleted={refresh} onError={setActionError} />
             ))}
@@ -159,14 +159,16 @@ function CreateSessionForm({ operatorId, activities, onCancel, onCreated, onErro
   )
 }
 
-function SessionRow({ session, activities, expanded, onToggle, onDeleted, onError }: {
-  session: SessionRecord; activities: ActivityRecord[]; expanded: boolean
+function SessionRow({ session, activities, operatorId, expanded, onToggle, onDeleted, onError }: {
+  session: SessionRecord; activities: ActivityRecord[]; operatorId: string | null; expanded: boolean
   onToggle: () => void; onDeleted: () => Promise<void>; onError: (e: string) => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [availableVersions, setAvailableVersions] = useState<AvailableVersion[]>([])
+  const [savingVersion, setSavingVersion] = useState(false)
 
   const activity = activities.find(a => a.key === session.activityKey)
   const url = typeof window !== 'undefined' ? `${window.location.origin}/participant/session/${session.id}` : ''
@@ -178,6 +180,34 @@ function SessionRow({ session, activities, expanded, onToggle, onDeleted, onErro
         .catch(() => onError('Failed to generate QR code'))
     }
   }, [expanded, qrDataUrl, url]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load the available versions for this session's activity when expanded,
+  // so the operator can pin the session to a specific one.
+  useEffect(() => {
+    if (expanded && operatorId && availableVersions.length === 0) {
+      listVersionsForActivity(operatorId, session.activityKey)
+        .then(setAvailableVersions)
+        .catch(() => { /* non-fatal — the control just won't populate */ })
+    }
+  }, [expanded, operatorId, session.activityKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function changeVersion(value: string) {
+    setSavingVersion(true)
+    try {
+      // '' (the "follow current" option) -> null pin; otherwise pin to the id
+      await setSessionPinnedVersion(session.id, value || null)
+      await onDeleted() // reuses the parent's refresh
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Failed to update version')
+    } finally {
+      setSavingVersion(false)
+    }
+  }
+
+  // What this session actually resolves to right now: its pin if set,
+  // else the activity's current published version.
+  const effectiveVersionNumber = session.pinnedVersionNumber ?? session.activityCurrentVersionNumber
+  const isPinned = session.pinnedVersionId !== null
 
   async function copyLink() {
     try {
@@ -213,6 +243,9 @@ function SessionRow({ session, activities, expanded, onToggle, onDeleted, onErro
           <div className="text-xs text-gray-400 mt-0.5">
             {activity?.displayName ?? session.activityKey} · {new Date(session.sessionDate + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
             {session.sessionTime ? ` · ${session.sessionTime}` : ''}
+            {effectiveVersionNumber != null && (
+              <span> · v{effectiveVersionNumber}{isPinned ? ' (pinned)' : ''}</span>
+            )}
           </div>
         </div>
         <span className="text-gray-400 text-sm">{expanded ? '▲' : '▼'}</span>
@@ -239,6 +272,34 @@ function SessionRow({ session, activities, expanded, onToggle, onDeleted, onErro
                 <button onClick={copyLink} className="text-xs px-3 py-2 rounded-lg border border-black/10 hover:bg-white shrink-0 whitespace-nowrap">
                   {copied ? 'Copied ✓' : 'Copy'}
                 </button>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs text-gray-500 mb-1">Template version</label>
+                {availableVersions.length === 0 ? (
+                  <p className="text-xs text-gray-400">This activity has no published versions yet.</p>
+                ) : (
+                  <>
+                    <select
+                      value={session.pinnedVersionId ?? ''}
+                      onChange={e => changeVersion(e.target.value)}
+                      disabled={savingVersion}
+                      className="form-input text-xs"
+                    >
+                      <option value="">
+                        Follow current{session.activityCurrentVersionNumber != null ? ` (v${session.activityCurrentVersionNumber})` : ''}
+                      </option>
+                      {availableVersions.map(v => (
+                        <option key={v.id} value={v.id}>Pin to v{v.versionNumber}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {isPinned
+                        ? `This session stays on v${session.pinnedVersionNumber} even when the template is republished.`
+                        : 'This session always uses the activity\u2019s latest published version.'}
+                    </p>
+                  </>
+                )}
               </div>
 
               {!confirmDelete ? (
