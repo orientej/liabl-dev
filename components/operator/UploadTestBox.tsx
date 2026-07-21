@@ -1,16 +1,21 @@
 'use client'
 import { useState, useRef } from 'react'
 
-// TEMPORARY — Stage 1 testing surface for the waiver upload/parse
-// feature. Lets an operator upload a file and see the extracted text,
-// so extraction quality can be confirmed on real documents before the
-// rest of the pipeline (Azure OCR, Claude segmentation, review UI) is
-// built. This whole component is meant to be REPLACED by the real
-// upload+review flow in Stage 4 — it's deliberately self-contained and
-// mounts in one place so it's a clean delete later.
+interface SegmentedClause { title: string; body: string; category: string }
+
+// TEMPORARY — Stage 1 + Stage 3 testing surface for the waiver
+// upload/parse feature. Upload a file to see extracted text (Stage 1),
+// then optionally parse it into labeled clauses via Claude (Stage 3).
+// Meant to be REPLACED by the real upload+review flow in Stage 4 —
+// deliberately self-contained so it's a clean delete later.
 export default function UploadTestBox() {
   const [busy, setBusy] = useState(false)
+  const [parsing, setParsing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [canManualFallback, setCanManualFallback] = useState(false)
+  const [clauses, setClauses] = useState<SegmentedClause[] | null>(null)
+  const [unverifiedCount, setUnverifiedCount] = useState(0)
   const [result, setResult] = useState<{
     text: string; method: string; pageCount: number | null
     likelyScanned: boolean; notice?: string; filename?: string
@@ -19,6 +24,7 @@ export default function UploadTestBox() {
 
   async function handleFile(file: File) {
     setBusy(true); setError(null); setResult(null)
+    setClauses(null); setParseError(null); setCanManualFallback(false)
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -33,14 +39,36 @@ export default function UploadTestBox() {
     }
   }
 
+  async function handleParse() {
+    if (!result?.text) return
+    setParsing(true); setParseError(null); setClauses(null); setCanManualFallback(false)
+    try {
+      const res = await fetch('/api/templates/segment', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: result.text }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setCanManualFallback(!!body.canManualFallback)
+        throw new Error(body.error ?? 'Parse failed')
+      }
+      setClauses(body.clauses)
+      setUnverifiedCount(body.unverifiedCount ?? 0)
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : 'Parse failed')
+    } finally {
+      setParsing(false)
+    }
+  }
+
   return (
     <div className="mb-6 border border-dashed border-brand/40 rounded-xl p-4 bg-brand/5">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xs font-semibold text-brand uppercase tracking-wider">Upload test</span>
-        <span className="text-xs text-gray-400">(temporary — Stage 1 extraction preview)</span>
+        <span className="text-xs text-gray-400">(temporary — Stage 1 + 3 preview)</span>
       </div>
       <p className="text-xs text-gray-500 mb-3">
-        Upload a waiver (PDF, Word .docx, or .txt) to see the extracted text. Nothing is saved.
+        Upload a waiver (PDF, Word .docx, or .txt) to see the extracted text, then parse it into clauses. Nothing is saved.
       </p>
 
       <div className="flex items-center gap-2">
@@ -58,6 +86,15 @@ export default function UploadTestBox() {
         >
           {busy ? 'Extracting…' : 'Choose file'}
         </button>
+        {result && result.text && (
+          <button
+            onClick={handleParse}
+            disabled={parsing}
+            className="text-xs px-3 py-2 border border-brand/40 text-brand rounded-lg font-medium hover:bg-brand/10 disabled:opacity-50"
+          >
+            {parsing ? 'Parsing…' : 'Parse into clauses'}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -78,11 +115,41 @@ export default function UploadTestBox() {
           <textarea
             readOnly
             value={result.text}
-            className="w-full h-64 text-xs font-mono border border-black/10 rounded-lg p-2 bg-white"
+            className="w-full h-40 text-xs font-mono border border-black/10 rounded-lg p-2 bg-white"
             placeholder="(no text extracted)"
           />
+        </div>
+      )}
+
+      {parseError && (
+        <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-700">
+          {parseError}
+          {canManualFallback && <div className="mt-1 text-red-600">(You can still create the template manually below.)</div>}
+        </div>
+      )}
+
+      {clauses && (
+        <div className="mt-3">
+          <div className="text-xs text-gray-500 mb-1.5">
+            Parsed <span className="text-ink font-medium">{clauses.length}</span> clause{clauses.length === 1 ? '' : 's'}
+            {unverifiedCount > 0 && (
+              <span className="text-amber-600"> · {unverifiedCount} could not be verified as verbatim (review carefully)</span>
+            )}
+          </div>
+          <div className="space-y-2">
+            {clauses.map((c, i) => (
+              <div key={i} className="bg-white border border-black/10 rounded-lg p-2.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-semibold text-ink">{c.title}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-brand/10 text-brand">{c.category}</span>
+                </div>
+                <div className="text-xs text-gray-600 whitespace-pre-wrap">{c.body}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   )
 }
+
