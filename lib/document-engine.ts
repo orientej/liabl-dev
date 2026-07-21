@@ -144,6 +144,44 @@ export async function resolveOperatorSlugForSession(supabase: SupabaseClient, se
 }
 
 /**
+ * Content Management Phase 1 — resolves which published template version
+ * a session's participants should sign against, for stamping onto the
+ * waiver (waivers.template_version_id).
+ *
+ * Resolution: a session's own pinned_version_id wins if set; otherwise
+ * fall back to the activity's current published version. Returns null if
+ * neither exists yet — e.g. a legacy activity that hasn't been published
+ * under the versioning model. Null is fine: the waiver just won't carry
+ * a version FK, landing it in the same implicit "legacy" bucket as every
+ * pre-versioning signature. Never throws or blocks signing over this —
+ * version stamping is metadata, not a gate on a participant completing
+ * their waiver.
+ */
+export async function resolveTemplateVersionForSession(
+  supabase: SupabaseClient,
+  sessionId: string,
+  activityKey: string,
+): Promise<string | null> {
+  const { data: session } = await supabase
+    .from('sessions')
+    .select('pinned_version_id, operator_id')
+    .eq('id', sessionId)
+    .maybeSingle()
+
+  if (session?.pinned_version_id) return session.pinned_version_id as string
+
+  if (!session?.operator_id) return null
+  const { data: activity } = await supabase
+    .from('activities')
+    .select('current_version_id')
+    .eq('operator_id', session.operator_id)
+    .eq('key', activityKey)
+    .maybeSingle()
+
+  return (activity?.current_version_id as string | null) ?? null
+}
+
+/**
  * Fetches everything needed to render the activity picker and generate
  * clauses for one operator. Call once (e.g. on flow mount) and reuse the
  * result — this data changes rarely and there's no reason to refetch it

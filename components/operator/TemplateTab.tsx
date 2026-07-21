@@ -6,6 +6,7 @@ import {
   createQuestion, updateQuestion, deleteQuestion, type ClauseInput,
 } from '@/lib/activity-admin'
 import { getActivityIcon } from '@/components/activity-icon'
+import TemplateVersionPanel from '@/components/operator/TemplateVersionPanel'
 
 const ICON_OPTIONS = ['kayak', 'hike', 'atv', 'climb', 'generic']
 const COLOR_PRESETS = ['#4B2ACF', '#15803D', '#EA580C', '#0891B2', '#DC2626', '#854F0B']
@@ -39,6 +40,23 @@ export default function TemplateTab() {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+
+  // Wraps refresh for CONTENT mutations (clauses, questions, activity
+  // profile) — marks the edited activity's draft dirty so the version
+  // panel shows "unpublished changes" and enables Publish. Kept separate
+  // from bare refresh(), which also runs on initial load and must NOT
+  // flag a freshly-published template as dirty.
+  const handleContentChanged = useCallback(async (activityId: string | null) => {
+    if (activityId) {
+      try {
+        const { markDraftChanged } = await import('@/lib/template-versions')
+        await markDraftChanged(activityId)
+      } catch (e) {
+        console.error('[TemplateTab] failed to mark draft changed:', e)
+      }
+    }
+    await refresh()
+  }, [refresh])
 
   const activities = engineData?.activities ?? []
   const selected    = activities.find(a => a.id === selectedId) ?? null
@@ -126,7 +144,7 @@ export default function TemplateTab() {
         <div className="space-y-4">
           <ActivityEditor
             activity={selected}
-            onSaved={refresh}
+            onSaved={() => handleContentChanged(selected.id)}
             onDeleted={async () => { setSelectedId(null); await refresh() }}
             onBusy={setBusy}
             onError={setActionError}
@@ -137,7 +155,7 @@ export default function TemplateTab() {
             operatorId={engineData!.operatorId}
             activity={selected}
             clause={hazardClause}
-            onSaved={refresh}
+            onSaved={() => handleContentChanged(selected.id)}
             onError={setActionError}
           />
 
@@ -148,7 +166,7 @@ export default function TemplateTab() {
             activityId={selected.id}
             questions={activityQuestions}
             clauseFor={clauseFor}
-            onChanged={refresh}
+            onChanged={() => handleContentChanged(selected.id)}
             onError={setActionError}
           />
 
@@ -159,8 +177,14 @@ export default function TemplateTab() {
             activityId={null}
             questions={globalQuestions}
             clauseFor={clauseFor}
-            onChanged={refresh}
+            onChanged={() => handleContentChanged(selected.id)}
             onError={setActionError}
+          />
+
+          <TemplateVersionPanel
+            operatorId={engineData!.operatorId}
+            activityId={selected.id}
+            activityName={selected.displayName}
           />
         </div>
       )}

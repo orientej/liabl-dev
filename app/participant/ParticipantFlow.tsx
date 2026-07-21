@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels, resolveOperatorSlugForSession } from '@/lib/document-engine'
+import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels, resolveOperatorSlugForSession, resolveTemplateVersionForSession } from '@/lib/document-engine'
 import { saveDraft, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
@@ -303,6 +303,14 @@ export default function ParticipantFlow() {
       // already know the ID we chose, there's nothing to read back.
       const waiverId  = crypto.randomUUID()
       const signedAt  = new Date().toISOString()
+      // Content Management Phase 1 — resolve which published version this
+      // session signs against (pinned wins, else activity current), so
+      // the waiver carries a first-class FK to the exact version. Never
+      // blocks signing: a null result (legacy/unpublished activity) just
+      // leaves the FK null, same bucket as every pre-versioning waiver.
+      const templateVersionId = resolvedSessionId
+        ? await resolveTemplateVersionForSession(supabase, resolvedSessionId, full.activityKey).catch(() => null)
+        : null
       const { error: waiverError } = await supabase
         .from('waivers')
         .insert({
@@ -318,6 +326,7 @@ export default function ParticipantFlow() {
           is_minor:       full.isMinor ?? false,
           guardian_name:  full.guardianName ?? null,
           ip_address:     ipAddressRef.current,
+          template_version_id: templateVersionId,
         })
 
       if (waiverError) throw new Error(`waiver insert: ${waiverError.message}`)
