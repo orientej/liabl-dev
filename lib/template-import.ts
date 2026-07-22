@@ -41,6 +41,7 @@ export type ImportTarget =
 
 export interface ImportResult {
   activityId:    string
+  activityKey:   string
   clausesAdded:  number
   createdNew:    boolean
 }
@@ -70,6 +71,57 @@ function uniqueKey(base: string, taken: Set<string>): string {
   return candidate
 }
 
+/**
+ * Creates a new, empty template (activity) with a collision-safe key.
+ * Exported because the setup wizard needs the same creation path for its
+ * "I'll build it myself" branch — keeping the key-uniqueness logic in one
+ * place rather than duplicating it and risking the two drifting apart.
+ *
+ * Created unpublished (published:false) — not visible to participants
+ * until the operator explicitly turns it on.
+ */
+export async function createEmptyTemplate(
+  operatorId: string,
+  displayNameRaw: string,
+): Promise<{ activityId: string; activityKey: string }> {
+  const displayName = displayNameRaw.trim()
+  if (!displayName) throw new Error('Template name is required')
+
+  const supabase = createClient()
+
+  // Activity keys are unique per operator — de-dupe against existing.
+  const { data: existingActivities, error: listErr } = await supabase
+    .from('activities')
+    .select('key, sort_order')
+    .eq('operator_id', operatorId)
+  if (listErr) throw new Error(`read activities: ${listErr.message}`)
+
+  const takenActivityKeys = new Set((existingActivities ?? []).map(a => a.key as string))
+  const activityKey = uniqueKey(slugify(displayName), takenActivityKeys)
+  const nextSortOrder = Math.max(0, ...(existingActivities ?? []).map(a => (a.sort_order as number) ?? 0)) + 1
+
+  const { data: created, error: createErr } = await supabase
+    .from('activities')
+    .insert({
+      operator_id:     operatorId,
+      key:             activityKey,
+      display_name:    displayName,
+      subtitle:        null,
+      icon:            'generic',
+      accent_color:    '#4B2ACF',
+      base_risk_score: 20,
+      sort_order:      nextSortOrder,
+      published:       false,
+    })
+    .select('id')
+    .single()
+
+  if (createErr) throw new Error(`create template: ${createErr.message}`)
+  if (!created)  throw new Error('create template returned no data')
+
+  return { activityId: created.id as string, activityKey }
+}
+
 export async function saveReviewedClauses(
   operatorId: string,
   target: ImportTarget,
@@ -81,46 +133,23 @@ export async function saveReviewedClauses(
   let activityId: string
   let createdNew = false
 
+  let activityKey: string
+
   if (target.mode === 'new') {
-    const displayName = target.displayName.trim()
-    if (!displayName) throw new Error('Template name is required')
-
-    // Activity keys are unique per operator — de-dupe against existing.
-    const { data: existingActivities, error: listErr } = await supabase
-      .from('activities')
-      .select('key, sort_order')
-      .eq('operator_id', operatorId)
-    if (listErr) throw new Error(`read activities: ${listErr.message}`)
-
-    const takenActivityKeys = new Set((existingActivities ?? []).map(a => a.key as string))
-    const activityKey = uniqueKey(slugify(displayName), takenActivityKeys)
-    const nextSortOrder = Math.max(0, ...(existingActivities ?? []).map(a => (a.sort_order as number) ?? 0)) + 1
-
-    const { data: created, error: createErr } = await supabase
-      .from('activities')
-      .insert({
-        operator_id:     operatorId,
-        key:             activityKey,
-        display_name:    displayName,
-        subtitle:        null,
-        icon:            'generic',
-        accent_color:    '#4B2ACF',
-        base_risk_score: 20,
-        sort_order:      nextSortOrder,
-        // Not visible to participants until the operator turns it on —
-        // an imported template is a draft, not a live one.
-        published:       false,
-      })
-      .select('id')
-      .single()
-
-    if (createErr) throw new Error(`create template: ${createErr.message}`)
-    if (!created)  throw new Error('create template returned no data')
-
-    activityId = created.id as string
-    createdNew = true
+    const created = await createEmptyTemplate(operatorId, target.displayName)
+    activityId  = created.activityId
+    activityKey = created.activityKey
+    createdNew  = true
   } else {
     activityId = target.activityId
+    const { data: existing, error: keyErr } = await supabase
+      .from('activities')
+      .select('key')
+      .eq('id', activityId)
+      .maybeSingle()
+    if (keyErr)   throw new Error(`read template: ${keyErr.message}`)
+    if (!existing) throw new Error('Template not found')
+    activityKey = existing.key as string
   }
 
   // Clause keys must be unique within the target activity — collect what's
@@ -162,5 +191,5 @@ export async function saveReviewedClauses(
     console.error('[saveReviewedClauses] failed to mark draft changed:', e)
   }
 
-  return { activityId, clausesAdded: rows.length, createdNew }
+  return { activityId, activityKey, clausesAdded: rows.length, createdNew }
 }

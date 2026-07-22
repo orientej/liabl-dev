@@ -12,15 +12,16 @@ import NotificationTab  from '@/components/operator/NotificationTab'
 import MultiLocationTab from '@/components/operator/MultiLocationTab'
 import SettingsTab      from '@/components/operator/SettingsTab'
 import SessionsTab      from '@/components/operator/SessionsTab'
+import SetupWizard      from '@/components/operator/SetupWizard'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import { IMPERSONATION_FLAG_KEY } from '@/lib/supabase'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert,
-  IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket,
+  IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
 } from '@/components/icons'
 
-type Tab = 'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
+type Tab = 'setup'|'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
 
 const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
 
@@ -69,7 +70,20 @@ export default function OperatorPage() {
         }
         try {
           const { createClient } = await import('@/lib/supabase')
-          setBilling(await fetchBillingStatus(createClient(), member.operatorId))
+          const supabase = createClient()
+
+          // Land brand-new operators on the setup wizard rather than an
+          // empty roster. "Brand new" = no sessions yet; an operator who
+          // has ever run a check-in doesn't need to be walked through
+          // setup again. Only overrides the initial tab, so it never
+          // fights a tab the person has already clicked.
+          const { count: sessionCount } = await supabase
+            .from('sessions')
+            .select('id', { count: 'exact', head: true })
+            .eq('operator_id', member.operatorId)
+          if ((sessionCount ?? 0) === 0) setTab('setup')
+
+          setBilling(await fetchBillingStatus(supabase, member.operatorId))
         } catch (e) {
           // Non-fatal — the dashboard works fine without the usage
           // banner, and this is a soft-block feature, not a gate.
@@ -147,6 +161,7 @@ export default function OperatorPage() {
   }
 
   const tabs: { key:Tab; label:string; Icon: React.ComponentType<{size?:number;color?:string}> }[] = [
+    { key:'setup',         label:'Get started',    Icon: IconVerified   },
     { key:'sessions',      label:'Sessions',       Icon: IconRocket     },
     { key:'roster',        label:'Roster',         Icon: IconSigned     },
     { key:'analytics',     label:'Analytics',      Icon: IconAnalytics  },
@@ -236,6 +251,7 @@ export default function OperatorPage() {
         </div>
       </div>
       <div className="max-w-4xl mx-auto px-4 py-8">
+        {tab === 'setup'         && <SetupWizard onNavigate={(t) => setTab(t)} />}
         {tab === 'roster'        && <RosterTab />}
         {tab === 'analytics'     && <AnalyticsTab />}
         {tab === 'templates'     && <TemplateTab />}
