@@ -3,6 +3,7 @@ import { useState, useRef } from 'react'
 import type { ActivityRecord } from '@/lib/document-engine'
 import { saveReviewedClauses, type ReviewedClause } from '@/lib/template-import'
 import { CLAUSE_CATEGORIES } from '@/lib/clause-categories'
+import CompletenessCheck from '@/components/operator/CompletenessCheck'
 
 // Content Management — waiver upload/parse, Stage 4: the operator-facing
 // flow. Replaces the temporary UploadTestBox: upload a document, parse it
@@ -243,6 +244,8 @@ export default function TemplateImportPanel({ operatorId, activities, onImported
               All clauses removed. Start over to upload a different document.
             </div>
           )}
+
+          <CompletenessCheck clauses={clauses.map(c => ({ title: c.title, body: c.body }))} />
 
           <div className="border-t border-black/8 pt-3">
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Save to</label>
