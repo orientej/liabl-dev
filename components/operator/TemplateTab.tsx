@@ -7,7 +7,7 @@ import {
 } from '@/lib/activity-admin'
 import { getActivityIcon } from '@/components/activity-icon'
 import TemplateVersionPanel from '@/components/operator/TemplateVersionPanel'
-import UploadTestBox from '@/components/operator/UploadTestBox'
+import TemplateImportPanel from '@/components/operator/TemplateImportPanel'
 
 const ICON_OPTIONS = ['kayak', 'hike', 'atv', 'climb', 'generic']
 const COLOR_PRESETS = ['#4B2ACF', '#15803D', '#EA580C', '#0891B2', '#DC2626', '#854F0B']
@@ -106,7 +106,11 @@ export default function TemplateTab() {
         </button>
       </div>
 
-      <UploadTestBox />
+      <TemplateImportPanel
+        operatorId={engineData!.operatorId}
+        activities={activities}
+        onImported={async (activityId) => { await refresh(); setSelectedId(activityId) }}
+      />
 
       {actionError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700 flex items-start justify-between gap-2">

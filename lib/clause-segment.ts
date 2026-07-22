@@ -25,27 +25,13 @@
 // browser. Called from the route handler, not from client code.
 
 import Anthropic from '@anthropic-ai/sdk'
+import { CLAUSE_CATEGORIES, type ClauseCategory } from '@/lib/clause-categories'
 
-// Recommended categories, matching the clause keys already seeded in the
-// product (007_m4_activities.sql). Not an enforced enum — there's no DB
-// constraint on clause keys, and real uploaded waivers will contain
-// things that don't fit — so 'other' is always allowed and the operator
-// finalizes the category during review (Stage 4).
-export const CLAUSE_CATEGORIES = [
-  'assumption',      // assumption of risk
-  'release',         // release of liability / waiver of claims
-  'indemnification', // hold harmless / indemnity
-  'medical',         // medical treatment authorization / fitness to participate
-  'emergency',       // emergency contact / authorization
-  'equipment',       // equipment use / rental / return
-  'governing_law',   // governing law / jurisdiction / venue
-  'photo_media',     // photo / media / likeness release
-  'minor',           // minor / guardian consent
-  'severability',    // severability / entire agreement / misc legal
-  'other',
-] as const
-
-export type ClauseCategory = typeof CLAUSE_CATEGORIES[number]
+// Categories live in their own dependency-free module so the client-side
+// review UI can import them without dragging this file's Node-only
+// Anthropic SDK into the browser bundle. Re-exported here for callers
+// that already reach for them alongside the segmenter.
+export { CLAUSE_CATEGORIES, type ClauseCategory } from '@/lib/clause-categories'
 
 export interface SegmentedClause {
   title:    string
