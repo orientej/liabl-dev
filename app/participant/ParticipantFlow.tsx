@@ -132,9 +132,15 @@ export default function ParticipantFlow() {
           // than adding a second round-trip.
           const { data: sessionRow } = await supabase
             .from('sessions')
-            .select('session_time, session_ref')
+            .select('session_time, session_ref, archived_at')
             .eq('id', sessionId)
             .maybeSingle()
+          // Archived sessions are closed to new signatures. Caught here so
+          // the participant is told immediately rather than filling in the
+          // whole form and hitting the save-time guard at the very end.
+          if (sessionRow?.archived_at) {
+            throw new Error('This check-in has been closed. Please ask staff for a current link or QR code.')
+          }
           if (sessionRow) {
             setSessionInfo({ time: sessionRow.session_time, ref: sessionRow.session_ref })
           }
@@ -282,9 +288,15 @@ export default function ParticipantFlow() {
         resolvedSessionId = demoSession.id
       } else {
         const { data: realSession, error: sessionErr } = await supabase
-          .from('sessions').select('id').eq('id', sessionId).maybeSingle()
+          .from('sessions').select('id, archived_at').eq('id', sessionId).maybeSingle()
         if (sessionErr) throw new Error(`session lookup: ${sessionErr.message}`)
         if (!realSession) throw new Error(`session ${sessionId} not found`)
+        // Hard guard: even if this tab was opened before the session was
+        // archived (or the load-time check was somehow bypassed), an
+        // archived session must not accept a new signature.
+        if (realSession.archived_at) {
+          throw new Error('This check-in has been closed and can no longer accept signatures.')
+        }
         resolvedSessionId = realSession.id
       }
 

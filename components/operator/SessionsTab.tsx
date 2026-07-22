@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import QRCode from 'qrcode'
 import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
-import { listSessions, createSession, deleteSession, listVersionsForActivity, setSessionPinnedVersion, type SessionRecord, type AvailableVersion } from '@/lib/sessions'
+import { listSessions, createSession, deleteSession, listVersionsForActivity, setSessionPinnedVersion, setSessionArchived, type SessionRecord, type AvailableVersion } from '@/lib/sessions'
 
 export default function SessionsTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
@@ -14,6 +14,9 @@ export default function SessionsTab() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  // Archived sessions are hidden until explicitly asked for.
+  const [showArchived, setShowArchived] = useState(false)
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
@@ -22,7 +25,7 @@ export default function SessionsTab() {
       const engineData = await fetchEngineData(createClient())
       setOperatorId(engineData.operatorId)
       setActivities(engineData.activities)
-      setSessions(await listSessions(engineData.operatorId))
+      setSessions(await listSessions(engineData.operatorId, { includeArchived: true }))
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load sessions')
     } finally {
@@ -33,8 +36,10 @@ export default function SessionsTab() {
   useEffect(() => { refresh() }, [refresh])
 
   const today = new Date().toISOString().slice(0, 10)
-  const upcoming = sessions.filter(s => s.sessionDate >= today)
-  const past = sessions.filter(s => s.sessionDate < today)
+  const active   = sessions.filter(s => !s.archivedAt)
+  const archived = sessions.filter(s =>  s.archivedAt)
+  const upcoming = active.filter(s => s.sessionDate >= today)
+  const past     = active.filter(s => s.sessionDate < today)
 
   if (loading) return <div className="px-5 py-10 text-center text-sm text-gray-400">Loading sessions…</div>
   if (loadError) return <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{loadError}</div>
@@ -91,6 +96,27 @@ export default function SessionsTab() {
                 onDeleted={refresh} onError={setActionError} />
             ))}
           </div>
+        </div>
+      )}
+
+      {archived.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-black/8">
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            className="text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-ink flex items-center gap-1.5"
+          >
+            <span>{showArchived ? '▾' : '▸'}</span>
+            Archived ({archived.length})
+          </button>
+          {showArchived && (
+            <div className="space-y-2 mt-2">
+              {archived.map(s => (
+                <SessionRow key={s.id} session={s} activities={activities} operatorId={operatorId} expanded={expandedId === s.id}
+                  onToggle={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                  onDeleted={refresh} onError={setActionError} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -168,6 +194,7 @@ function SessionRow({ session, activities, operatorId, expanded, onToggle, onDel
   const [copied, setCopied] = useState(false)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [availableVersions, setAvailableVersions] = useState<AvailableVersion[]>([])
+  const [archiving, setArchiving] = useState(false)
   const [savingVersion, setSavingVersion] = useState(false)
 
   const activity = activities.find(a => a.key === session.activityKey)
@@ -190,6 +217,18 @@ function SessionRow({ session, activities, operatorId, expanded, onToggle, onDel
         .catch(() => { /* non-fatal — the control just won't populate */ })
     }
   }, [expanded, operatorId, session.activityKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function toggleArchived() {
+    setArchiving(true)
+    try {
+      await setSessionArchived(session.id, !session.archivedAt)
+      await onDeleted() // reuses the parent's refresh
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Failed to update session')
+    } finally {
+      setArchiving(false)
+    }
+  }
 
   async function changeVersion(value: string) {
     setSavingVersion(true)
@@ -246,6 +285,7 @@ function SessionRow({ session, activities, operatorId, expanded, onToggle, onDel
             {effectiveVersionNumber != null && (
               <span> · v{effectiveVersionNumber}{isPinned ? ' (pinned)' : ''}</span>
             )}
+            {session.archivedAt && <span className="text-gray-400"> · archived</span>}
           </div>
         </div>
         <span className="text-gray-400 text-sm">{expanded ? '▲' : '▼'}</span>
@@ -300,6 +340,23 @@ function SessionRow({ session, activities, operatorId, expanded, onToggle, onDel
                     </p>
                   </>
                 )}
+              </div>
+
+              <div className="mb-3">
+                <button
+                  onClick={toggleArchived}
+                  disabled={archiving}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-black/10 hover:bg-white disabled:opacity-50"
+                >
+                  {archiving
+                    ? (session.archivedAt ? 'Restoring…' : 'Archiving…')
+                    : (session.archivedAt ? 'Restore session' : 'Archive session')}
+                </button>
+                <p className="text-xs text-gray-400 mt-1">
+                  {session.archivedAt
+                    ? 'Restoring puts this session back in your active list and reopens its check-in link.'
+                    : 'Archiving hides this session and closes its check-in link. Signed waivers are kept and stay viewable.'}
+                </p>
               </div>
 
               {!confirmDelete ? (

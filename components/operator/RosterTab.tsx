@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
+import { listSessions, type SessionRecord } from '@/lib/sessions'
 import { calculateRiskScore } from '@/components/RiskScore'
 import WaiverDetail, { type WaiverDetailRow } from '@/components/operator/WaiverDetail'
 import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
@@ -90,6 +91,11 @@ export default function RosterTab() {
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [loading,      setLoading]      = useState(true)
   const [sessionLabel, setSessionLabel] = useState<string>(DEMO_SESSION_LABEL)
+  // Session filter: 'all' shows every participant across ACTIVE sessions
+  // (archived sessions are excluded from 'all' by design — selecting an
+  // archived session explicitly is how its signed waivers stay reachable).
+  const [sessions,     setSessions]     = useState<SessionRecord[]>([])
+  const [sessionFilter, setSessionFilter] = useState<string>('all')
   const [activities,   setActivities]   = useState<ActivityRecord[]>([])
 
   const activitiesByKey = useMemo(
@@ -109,8 +115,11 @@ export default function RosterTab() {
         try {
           const engineData = await fetchEngineData(supabase)
           setActivities(engineData.activities)
+          // Archived included so they can be offered as explicit filter
+          // choices — they're grouped separately in the picker.
+          setSessions(await listSessions(engineData.operatorId, { includeArchived: true }))
         } catch (engineErr) {
-          console.error('[RosterTab] activities load failed:', engineErr)
+          console.error('[RosterTab] activities/sessions load failed:', engineErr)
         }
 
         // Pull full waiver rows including answers + clauses so WaiverDetail
@@ -182,13 +191,33 @@ export default function RosterTab() {
     load()
   }, [])
 
-  const visible = roster.filter(w =>
+  const activeSessions   = useMemo(() => sessions.filter(s => !s.archivedAt), [sessions])
+  const archivedSessions = useMemo(() => sessions.filter(s =>  s.archivedAt), [sessions])
+
+  const archivedSessionIds = useMemo(
+    () => new Set(sessions.filter(s => s.archivedAt).map(s => s.id)),
+    [sessions]
+  )
+
+  // Session scoping happens first, and the signed/pending counts below are
+  // computed from the scoped set — otherwise the header stats would
+  // describe a different population than the list underneath them.
+  const inScope = useMemo(() => roster.filter(w => {
+    if (sessionFilter === 'all') {
+      // Archived sessions are excluded from the default view. Waivers with
+      // no session at all still show — they're not archived, just unlinked.
+      return !w.session_id || !archivedSessionIds.has(w.session_id)
+    }
+    return w.session_id === sessionFilter
+  }), [roster, sessionFilter, archivedSessionIds])
+
+  const visible = inScope.filter(w =>
     filter === 'signed'  ? !!w.signed_at :
     filter === 'pending' ? !w.signed_at  : true
   )
-  const signed  = roster.filter(w => !!w.signed_at).length
-  const pending = roster.filter(w => !w.signed_at).length
-  const pct     = Math.round(signed / Math.max(roster.length, 1) * 100)
+  const signed  = inScope.filter(w => !!w.signed_at).length
+  const pending = inScope.filter(w => !w.signed_at).length
+  const pct     = Math.round(signed / Math.max(inScope.length, 1) * 100)
 
   function toggleExpand(id: string, isSigned: boolean) {
     if (!isSigned) return
@@ -202,8 +231,47 @@ export default function RosterTab() {
           <h1 className="font-serif text-2xl" style={{ letterSpacing:'-0.01em' }}>Check-in Roster</h1>
           <p className="text-sm text-gray-400 mt-1">{new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}</p>
         </div>
-        <span className="bg-brand/10 text-brand border border-brand/20 text-xs font-medium px-3 py-1.5 rounded-full">{sessionLabel}</span>
+        {/* Session picker. Falls back to the old static badge when there's
+            nothing to choose between (0 or 1 session), so a single-session
+            operator doesn't get a dropdown with one option in it. */}
+        {sessions.length > 1 ? (
+          <select
+            value={sessionFilter}
+            onChange={e => setSessionFilter(e.target.value)}
+            className="text-xs font-medium px-3 py-1.5 rounded-full border border-brand/20 bg-brand/10 text-brand shrink-0 max-w-[16rem]"
+            aria-label="Filter roster by session"
+          >
+            <option value="all">All participants</option>
+            {activeSessions.length > 0 && (
+              <optgroup label="Sessions">
+                {activeSessions.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.sessionRef || 'Untitled'}{s.sessionTime ? ` · ${s.sessionTime}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {archivedSessions.length > 0 && (
+              <optgroup label="Archived">
+                {archivedSessions.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.sessionRef || 'Untitled'}{s.sessionTime ? ` · ${s.sessionTime}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        ) : (
+          <span className="bg-brand/10 text-brand border border-brand/20 text-xs font-medium px-3 py-1.5 rounded-full">{sessionLabel}</span>
+        )}
       </div>
+
+      {sessionFilter !== 'all' && archivedSessionIds.has(sessionFilter) && (
+        <div className="bg-surface border border-black/10 rounded-xl px-4 py-2.5 mb-5 text-xs text-gray-500">
+          Viewing an <span className="font-medium text-ink">archived</span> session. These participants aren&apos;t
+          included in the default roster view.
+        </div>
+      )}
 
       {/* Demo-data banner — shown whenever real data couldn't be loaded */}
       {isDemo && !loading && (

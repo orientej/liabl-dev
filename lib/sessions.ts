@@ -24,15 +24,28 @@ export interface SessionRecord {
   // published under the versioning model.
   activityCurrentVersionId: string | null
   activityCurrentVersionNumber: number | null
+  // Session archiving: null = active. An archived session is hidden from
+  // the default Sessions list and from the roster's "All participants"
+  // view, and stops accepting new signatures.
+  archivedAt: string | null
 }
 
-export async function listSessions(operatorId: string): Promise<SessionRecord[]> {
+/**
+ * Lists an operator's sessions. Archived sessions are EXCLUDED by
+ * default — callers that need them (the Sessions tab's "show archived"
+ * view, and the roster's session filter, which lists archived sessions
+ * separately so their signed waivers stay reachable) opt in explicitly.
+ */
+export async function listSessions(
+  operatorId: string,
+  opts: { includeArchived?: boolean } = {},
+): Promise<SessionRecord[]> {
   const supabase = createClient()
 
   const [{ data: sessions, error }, { data: waiverRows }, { data: activities }, { data: versions }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, session_ref, session_time, session_date, activity_key, pinned_version_id')
+      .select('id, session_ref, session_time, session_date, activity_key, pinned_version_id, archived_at')
       .eq('operator_id', operatorId)
       .order('session_date', { ascending: false }),
     supabase
@@ -72,8 +85,24 @@ export async function listSessions(operatorId: string): Promise<SessionRecord[]>
       pinnedVersionNumber: s.pinned_version_id ? (versionNumberById.get(s.pinned_version_id) ?? null) : null,
       activityCurrentVersionId: activity?.current_version_id ?? null,
       activityCurrentVersionNumber: activity?.current_version_number ?? null,
+      archivedAt: s.archived_at ?? null,
     }
-  })
+  }).filter(rec => opts.includeArchived || rec.archivedAt === null)
+}
+
+/**
+ * Archives or restores a session. Archiving is soft — nothing is
+ * deleted, and the session (with its signed waivers) stays reachable
+ * through the archived views. deleteSession() remains the tool for
+ * genuine removal.
+ */
+export async function setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('sessions')
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq('id', sessionId)
+  if (error) throw new Error(`${archived ? 'archive' : 'restore'} session: ${error.message}`)
 }
 
 export interface AvailableVersion {

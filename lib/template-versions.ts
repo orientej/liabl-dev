@@ -190,6 +190,9 @@ export async function publishTemplateVersion(input: PublishInput): Promise<{ ver
       .update({ pinned_version_id: outgoingVersionId })
       .eq('operator_id', input.operatorId)
       .is('pinned_version_id', null)
+      // Archived sessions are closed to new signatures, so pinning them
+      // to an outgoing version would be meaningless bookkeeping.
+      .is('archived_at', null)
       // only sessions for THIS activity — matched by activity_key, which
       // is how sessions reference their activity
       .in('activity_key', [await activityKeyFor(supabase, input.activityId)])
