@@ -36,6 +36,43 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_OPERATOR_PATHS = ['/operator/login', '/operator/impersonate']
 
+/**
+ * Origin (scheme + host) of a configured URL, or null when unset or
+ * malformed. Malformed configuration must never take a surface down, so
+ * every caller treats null as "not configured" and serves normally.
+ */
+function originOf(configured: string | undefined): string | null {
+  const raw = configured?.trim()
+  if (!raw) return null
+  try {
+    return new URL(raw).origin
+  } catch {
+    return null
+  }
+}
+
+/** Whether a request host is the host of a configured URL. */
+function hostMatches(configured: string | undefined, requestHost: string): boolean {
+  const origin = originOf(configured)
+  return !!origin && new URL(origin).host === requestHost
+}
+
+/**
+ * Preview deployments and local development, which get NO host routing —
+ * one origin serves every surface there, which is what makes a preview
+ * URL useful for testing the participant flow. Without this, preview
+ * traffic would be redirected to the live participant domain.
+ *
+ * Deliberately NOT "any host we don't recognize": the previously-live
+ * production host is also unrecognized once traffic moves to the new
+ * hosts, and participant links printed while it was canonical must keep
+ * redirecting. Only genuinely non-production hosts opt out.
+ */
+function isNonProductionHost(requestHost: string): boolean {
+  const host = requestHost.split(':')[0]
+  return host.endsWith('.vercel.app') || host === 'localhost' || host === '127.0.0.1'
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } })
 
@@ -63,33 +100,66 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname
 
-  // ── Participant host redirect ────────────────────────────────────────
-  // Runs BEFORE the auth work below, deliberately: a participant is an
-  // anonymous member of the public, and there is no reason to touch
-  // session cookies on a request we are about to redirect away.
+  // ── Host routing ─────────────────────────────────────────────────────
+  // Runs BEFORE the auth work below, deliberately: there is no reason to
+  // touch session cookies on a request we are about to send elsewhere.
   //
-  // Already-printed QR codes encode whatever origin was current when
-  // they were generated. They are laminated, posted at trailheads, and
-  // have no expiry — so when the participant surface moves to its own
-  // host, requests arriving on the OLD host must be forwarded rather
-  // than 404'd. This is permanent, not a transition window.
+  // The operator console and the participant flow are one deployment
+  // served on two hosts. Keeping each surface on its own origin is what
+  // makes the separation real rather than cosmetic:
   //
-  // No-op until NEXT_PUBLIC_PARTICIPANT_URL is set to a host that
-  // differs from the one serving the request, so it is safe to deploy
-  // long before any domain change. 308 (not 302) preserves the method
-  // and tells caches this is permanent.
-  const participantBase = process.env.NEXT_PUBLIC_PARTICIPANT_URL?.trim()
-  if (participantBase && path.startsWith('/participant')) {
-    try {
-      const target = new URL(participantBase)
-      if (target.host !== request.nextUrl.host) {
-        const redirectUrl = new URL(path + request.nextUrl.search, target.origin)
-        return NextResponse.redirect(redirectUrl, 308)
-      }
-    } catch {
-      // A malformed NEXT_PUBLIC_PARTICIPANT_URL must never take the
-      // participant flow down — fall through and serve normally.
+  //   * Participant links and QR codes are permanent physical artifacts.
+  //     Ones printed before the split encode the old host, so /participant
+  //     requests arriving there are forwarded rather than 404'd.
+  //
+  //   * The operator console must NOT be reachable on the participant
+  //     host. If a staff member logged in at the participant origin — on a
+  //     shared check-in tablet, say — that origin would then hold an
+  //     operator session cookie, and the participant flow would inherit it
+  //     on the next signature. That is exactly the bug lib/supabase-anon.ts
+  //     was written to work around: auth.role() resolves to `authenticated`
+  //     instead of `anon` and every anon-scoped RLS policy rejects the
+  //     write. Separate origins only prevent that if each origin refuses to
+  //     serve the other's surface.
+  const surfaceHost       = request.nextUrl.host
+  const isParticipantHost = hostMatches(process.env.NEXT_PUBLIC_PARTICIPANT_URL, surfaceHost)
+  const isOperatorHost    = hostMatches(process.env.NEXT_PUBLIC_OPERATOR_URL, surfaceHost)
+  const nonProduction     = isNonProductionHost(surfaceHost)
+  const participantOrigin = originOf(process.env.NEXT_PUBLIC_PARTICIPANT_URL)
+  const operatorOrigin    = originOf(process.env.NEXT_PUBLIC_OPERATOR_URL)
+
+  // The operator host is a tool, not a website: its root should open the
+  // console rather than the marketing home page. Sending it to /operator
+  // (not straight to /operator/login) keeps ONE place deciding where an
+  // operator lands — the auth rule further down, which forwards to login
+  // when signed out and serves the dashboard when signed in.
+  if (isOperatorHost && path === '/') {
+    return NextResponse.redirect(new URL('/operator', request.url))
+  }
+
+  // Participant paths arriving anywhere other than the participant host —
+  // the printed-QR-code case. 308 preserves the method and marks it
+  // permanent, which is accurate: those codes are never reissued.
+  if (!isParticipantHost && !nonProduction && participantOrigin && path.startsWith('/participant')) {
+    return NextResponse.redirect(
+      new URL(path + request.nextUrl.search, participantOrigin), 308
+    )
+  }
+
+  // Operator or global-admin paths arriving on the participant host. Sent
+  // to the operator origin when it is known, so staff land on the console
+  // at the host where their session cookie belongs; 404 otherwise, which
+  // is the safe default — better a dead end than an operator login form
+  // served on the public check-in origin. 307 rather than 308: this is a
+  // correction, not a permanent address, and should not be cached if the
+  // host configuration later changes.
+  if (isParticipantHost && (path.startsWith('/operator') || path.startsWith('/admin'))) {
+    if (operatorOrigin) {
+      return NextResponse.redirect(
+        new URL(path + request.nextUrl.search, operatorOrigin), 307
+      )
     }
+    return new NextResponse(null, { status: 404 })
   }
 
   // Required even when we don't use the result directly — this is what
