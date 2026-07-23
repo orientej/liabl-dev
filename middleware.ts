@@ -61,11 +61,41 @@ export async function middleware(request: NextRequest) {
     }
   )
 
+  const path = request.nextUrl.pathname
+
+  // ── Participant host redirect ────────────────────────────────────────
+  // Runs BEFORE the auth work below, deliberately: a participant is an
+  // anonymous member of the public, and there is no reason to touch
+  // session cookies on a request we are about to redirect away.
+  //
+  // Already-printed QR codes encode whatever origin was current when
+  // they were generated. They are laminated, posted at trailheads, and
+  // have no expiry — so when the participant surface moves to its own
+  // host, requests arriving on the OLD host must be forwarded rather
+  // than 404'd. This is permanent, not a transition window.
+  //
+  // No-op until NEXT_PUBLIC_PARTICIPANT_URL is set to a host that
+  // differs from the one serving the request, so it is safe to deploy
+  // long before any domain change. 308 (not 302) preserves the method
+  // and tells caches this is permanent.
+  const participantBase = process.env.NEXT_PUBLIC_PARTICIPANT_URL?.trim()
+  if (participantBase && path.startsWith('/participant')) {
+    try {
+      const target = new URL(participantBase)
+      if (target.host !== request.nextUrl.host) {
+        const redirectUrl = new URL(path + request.nextUrl.search, target.origin)
+        return NextResponse.redirect(redirectUrl, 308)
+      }
+    } catch {
+      // A malformed NEXT_PUBLIC_PARTICIPANT_URL must never take the
+      // participant flow down — fall through and serve normally.
+    }
+  }
+
   // Required even when we don't use the result directly — this is what
   // actually performs the token refresh against the cookies above.
   const { data: { user } } = await supabase.auth.getUser()
 
-  const path = request.nextUrl.pathname
   const isImpersonationEntry = path === '/operator' && request.nextUrl.searchParams.get('impersonating') === '1'
   const isProtectedOperatorPath =
     path.startsWith('/operator') && !PUBLIC_OPERATOR_PATHS.includes(path) && !isImpersonationEntry

@@ -146,10 +146,16 @@ export default function ParticipantFlow() {
           }
         }
         // sessionId === DEMO_SESSION_FALLBACK (bare /participant visit,
-        // no session param) intentionally leaves operatorSlug undefined,
-        // preserving the existing investor-demo fallback behavior.
+        // no session param) leaves operatorSlug undefined and opts in to
+        // the demo operator explicitly. fetchEngineData now throws rather
+        // than defaulting silently, so this flag is what keeps the
+        // investor demo working without letting any other caller inherit
+        // the fallback by accident.
+        const isDemoVisit = sessionId === DEMO_SESSION_FALLBACK
 
-        const data = await fetchEngineData(supabase, operatorSlug)
+        const data = await fetchEngineData(supabase, operatorSlug, {
+          allowDemoFallback: isDemoVisit,
+        })
         setEngineData(data)
       } catch (err) {
         console.error('[ParticipantFlow] engine data load failed:', err)

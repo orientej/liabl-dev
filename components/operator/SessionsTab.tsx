@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import QRCode from 'qrcode'
 import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
 import { listSessions, createSession, deleteSession, listVersionsForActivity, setSessionPinnedVersion, setSessionArchived, type SessionRecord, type AvailableVersion } from '@/lib/sessions'
+import { participantCheckInUrl } from '@/lib/participant-url'
 
 export default function SessionsTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
@@ -198,7 +199,9 @@ function SessionRow({ session, activities, operatorId, expanded, onToggle, onDel
   const [savingVersion, setSavingVersion] = useState(false)
 
   const activity = activities.find(a => a.key === session.activityKey)
-  const url = typeof window !== 'undefined' ? `${window.location.origin}/participant/session/${session.id}` : ''
+  // Built via the shared helper so this link survives the participant
+  // surface moving to its own host — see lib/participant-url.ts.
+  const url = participantCheckInUrl(session.id)
 
   useEffect(() => {
     if (expanded && !qrDataUrl && url) {

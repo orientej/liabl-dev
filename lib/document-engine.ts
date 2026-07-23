@@ -104,6 +104,9 @@ export interface EngineData {
 // Fallback when there's no authenticated user to resolve an operator
 // from — e.g. the participant-facing flow, which has no login concept.
 // Still single-operator-shaped in that sense, same as before.
+// Used ONLY by callers that pass allowDemoFallback (the bare /participant
+// investor demo). Every other caller errors rather than silently loading
+// this operator's content — see fetchEngineData.
 const DEFAULT_OPERATOR_SLUG = 'desert-ridge'
 
 async function resolveOperatorSlugForCurrentUser(supabase: SupabaseClient): Promise<string | null> {
@@ -189,21 +192,39 @@ export async function resolveTemplateVersionForSession(
  *
  * operatorSlug is optional: pass it explicitly to target a specific
  * operator (e.g. the participant flow resolves this from the actual
- * session being checked into, via resolveOperatorSlugForSession — it
- * must NOT rely on this function's own fallback chain, since an
- * anonymous participant has no logged-in user to resolve and the
- * fallback below would silently show the wrong operator's content). If
+ * session being checked into, via resolveOperatorSlugForSession). If
  * omitted, resolves from the current authenticated user's
- * operator_members row instead (the operator-dashboard case), falling
- * back to the single default operator only when neither an explicit
- * slug nor a logged-in user is available at all.
+ * operator_members row instead (the operator-dashboard case).
+ *
+ * If neither yields an operator, this THROWS rather than quietly
+ * serving a default. Silently falling back meant any caller that failed
+ * to resolve — a global admin with no operator_members row opening the
+ * operator console, or a future host-routing bug — would be shown
+ * another operator's activities, clauses, and questions with no
+ * indication anything was wrong. Serving the wrong operator's legal
+ * content is worse than an error message.
+ *
+ * options.allowDemoFallback opts back in to the old behavior for the
+ * one surface that genuinely wants it: the bare /participant route,
+ * which is an investor/sales demo with no session and therefore no
+ * operator to resolve. Making it explicit means the demo keeps working
+ * while nothing else can inherit the fallback by accident.
  */
 export async function fetchEngineData(
   supabase: SupabaseClient,
   operatorSlug?: string,
-  options: { includeUnpublished?: boolean } = {}
+  options: { includeUnpublished?: boolean; allowDemoFallback?: boolean } = {}
 ): Promise<EngineData> {
-  const resolvedSlug = operatorSlug ?? (await resolveOperatorSlugForCurrentUser(supabase)) ?? DEFAULT_OPERATOR_SLUG
+  const resolvedSlug =
+    operatorSlug
+    ?? (await resolveOperatorSlugForCurrentUser(supabase))
+    ?? (options.allowDemoFallback ? DEFAULT_OPERATOR_SLUG : null)
+
+  if (!resolvedSlug) {
+    throw new Error(
+      'Could not determine which operator to load. Your login may not be linked to an operator account yet — contact LIABL support if this persists.'
+    )
+  }
 
   const { data: operator, error: operatorError } = await supabase
     .from('operators')

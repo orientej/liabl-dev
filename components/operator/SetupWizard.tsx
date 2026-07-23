@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase'
 import { saveReviewedClauses, createEmptyTemplate, type ReviewedClause } from '@/lib/template-import'
 import { publishTemplateVersion } from '@/lib/template-versions'
 import { createSession } from '@/lib/sessions'
+import { participantCheckInUrl } from '@/lib/participant-url'
 import { CLAUSE_CATEGORIES } from '@/lib/clause-categories'
 
 // Content Management — operator setup wizard.
@@ -186,7 +187,7 @@ export default function SetupWizard({ onNavigate }: { onNavigate: (tab: 'templat
         operatorId, sessionRef: sessionRef.trim() || 'First check-in',
         sessionTime, sessionDate, activityKey,
       })
-      setCheckInUrl(`${window.location.origin}/participant/session/${id}`)
+      setCheckInUrl(participantCheckInUrl(id))
       setStep('done')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create the session')
