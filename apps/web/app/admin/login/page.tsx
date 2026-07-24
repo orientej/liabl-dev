@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { signIn, signOut } from '@/lib/auth'
 import { getCurrentAdmin } from '@/lib/admin-auth'
-import PageNav from '@/components/PageNav'
+import { PageNav } from '@liabl/ui'
 
 export default function AdminLoginPage() {
   const router = useRouter()

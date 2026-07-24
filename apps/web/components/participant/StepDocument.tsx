@@ -1,5 +1,5 @@
 import { WaiverClause, ParticipantAnswers } from '@/lib/document-engine'
-import { IconAIActive } from '@/components/icons'
+import { IconAIActive } from '@liabl/ui'
 
 interface Props {
   clauses:  WaiverClause[]

@@ -5,7 +5,7 @@ import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEng
 import { saveDraft, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
-import Logo           from '@/components/Logo'
+import { Logo } from '@liabl/ui'
 import ProgressBar    from '@/components/participant/ProgressBar'
 import StepEntry      from '@/components/participant/StepEntry'
 import StepIdentity   from '@/components/participant/StepIdentity'
@@ -15,7 +15,7 @@ import { StepGuardian } from '@/components/participant/StepGuardian'
 import StepDocument   from '@/components/participant/StepDocument'
 import StepSignature  from '@/components/participant/StepSignature'
 import StepConfirm    from '@/components/participant/StepConfirm'
-import PageNav from '@/components/PageNav'
+import { PageNav } from '@liabl/ui'
 
 const ADULT_STEPS = ['Identity','Activity','Health','Review','Sign']
 const MINOR_STEPS = ['Identity','Activity','Health','Guardian','Review','Sign']

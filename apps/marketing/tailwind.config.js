@@ -1,7 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  // The shared package must be scanned too, or Tailwind purges the classes
-  // used inside Logo/PageNav/icons and they render unstyled.
   presets: [require('@liabl/ui/tailwind-preset')],
   content: [
     './app/**/*.{js,ts,jsx,tsx}',

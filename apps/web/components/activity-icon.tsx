@@ -11,7 +11,7 @@
 // reversion to it.
 
 import type { ComponentType } from 'react'
-import { IconKayak, IconHike, IconATV, IconClimb, IconUser } from '@/components/icons'
+import { IconKayak, IconHike, IconATV, IconClimb, IconUser } from '@liabl/ui'
 
 export type ActivityIconComponent = ComponentType<{ size?: number; color?: string }>
 

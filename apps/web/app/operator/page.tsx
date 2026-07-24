@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Logo from '@/components/Logo'
-import PageNav from '@/components/PageNav'
+import { Logo } from '@liabl/ui'
+import { PageNav } from '@liabl/ui'
 import RosterTab        from '@/components/operator/RosterTab'
 import TemplateTab      from '@/components/operator/TemplateTab'
 import AnalyticsTab     from '@/components/operator/AnalyticsTab'
@@ -19,7 +19,7 @@ import { IMPERSONATION_FLAG_KEY } from '@/lib/supabase'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert,
   IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
-} from '@/components/icons'
+} from '@liabl/ui'
 
 type Tab = 'setup'|'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
 

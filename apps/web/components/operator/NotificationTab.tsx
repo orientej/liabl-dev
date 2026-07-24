@@ -7,7 +7,7 @@ import {
 import {
   IconSigned, IconException, IconLegalHold, IconNetwork,
   IconVerified, IconAnalytics, IconLIABLPass, IconAlert, IconTemplate,
-} from '@/components/icons'
+} from '@liabl/ui'
 
 // ── Display config — identical to the original, keeps visual parity ───────────
 

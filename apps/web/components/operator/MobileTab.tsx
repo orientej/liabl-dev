@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { QrCode, UserCheck, ClipboardList, Shield, CheckCircle, ChevronRight, ArrowLeft, WifiOff, Wifi, Smartphone, type LucideIcon } from 'lucide-react'
-import { IconAuditTrail, IconRiskProfile, IconMobile } from '@/components/icons'
+import { IconAuditTrail, IconRiskProfile, IconMobile } from '@liabl/ui'
 
 type Screen = 'home'|'scan'|'recognized'|'activity'|'health'|'document'|'signature'|'confirm'|'manifest'
 

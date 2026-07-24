@@ -1,5 +1,5 @@
 import { ParticipantAnswers } from '@/lib/document-engine'
-import { IconVerified } from '@/components/icons'
+import { IconVerified } from '@liabl/ui'
 interface Props { answers:ParticipantAnswers; labels:Record<string,string>; onRestart:()=>void }
 export default function StepConfirm({ answers, labels, onRestart }: Props) {
   const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})

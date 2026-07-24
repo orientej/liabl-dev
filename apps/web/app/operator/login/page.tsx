@@ -2,7 +2,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn, signUp, getCurrentOperatorMember, completeOperatorSetup } from '@/lib/auth'
-import PageNav from '@/components/PageNav'
+import { PageNav } from '@liabl/ui'
 
 type Mode = 'signin' | 'signup'
 type Phase = 'form' | 'confirmEmail' | 'setup' | 'redirecting'

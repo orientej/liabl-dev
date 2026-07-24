@@ -1,7 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // @liabl/ui ships raw .tsx rather than a build step, so Next compiles it
-  // as part of this app.
   transpilePackages: ['@liabl/ui'],
 }
 module.exports = nextConfig

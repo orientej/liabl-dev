@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import PageNav from '@/components/PageNav'
+import { PageNav } from '@liabl/ui'
 import AccountsTab from '@/components/admin/AccountsTab'
 import UsersTab from '@/components/admin/UsersTab'
 import ReportingTab from '@/components/admin/ReportingTab'
@@ -9,7 +9,7 @@ import SettingsTab from '@/components/admin/SettingsTab'
 import AdminsTab from '@/components/admin/AdminsTab'
 import { getCurrentAdmin } from '@/lib/admin-auth'
 import { signOut } from '@/lib/auth'
-import { IconUserGroup, IconAnalytics, IconTemplate, IconShield, IconUser } from '@/components/icons'
+import { IconUserGroup, IconAnalytics, IconTemplate, IconShield, IconUser } from '@liabl/ui'
 
 type Tab = 'accounts' | 'users' | 'reporting' | 'settings' | 'admins'
 
