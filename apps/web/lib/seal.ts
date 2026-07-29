@@ -382,16 +382,16 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
 
 // ─── Storage upload ───────────────────────────────────────────────────────────
 
-export async function uploadPdf(
+// Uploads pre-built PDF bytes to an explicit path within the 'waivers'
+// bucket. Both the waiver seal and the supplemental-document seal go
+// through here — supplemental documents use a documents/ path prefix in
+// the SAME bucket, so the existing bucket_id = 'waivers' storage RLS
+// policies (011_m5_rls_tighten.sql) already cover them with no new policy.
+export async function uploadPdfToPath(
   supabase: SupabaseClient,
-  waiverId: string,
-  pdfBytes: Uint8Array,
-  signedAt: string
+  path: string,
+  pdfBytes: Uint8Array
 ): Promise<string> {
-  const date   = new Date(signedAt)
-  const yyyy   = date.getFullYear()
-  const mm     = String(date.getMonth() + 1).padStart(2, '0')
-  const path   = `waivers/${yyyy}/${mm}/${waiverId}.pdf`
   const bucket = 'waivers'
 
   const { error: uploadError } = await supabase.storage
@@ -402,6 +402,21 @@ export async function uploadPdf(
     })
 
   if (uploadError) throw new Error(`PDF upload: ${uploadError.message}`)
+  return path
+}
+
+export async function uploadPdf(
+  supabase: SupabaseClient,
+  waiverId: string,
+  pdfBytes: Uint8Array,
+  signedAt: string
+): Promise<string> {
+  const date   = new Date(signedAt)
+  const yyyy   = date.getFullYear()
+  const mm     = String(date.getMonth() + 1).padStart(2, '0')
+  const path   = `waivers/${yyyy}/${mm}/${waiverId}.pdf`
+
+  await uploadPdfToPath(supabase, path, pdfBytes)
 
   // v25 M6 security review — this used to generate a 10-year signed URL
   // here and store it directly, rationalized as "durable enough for
@@ -435,5 +450,232 @@ export async function sealWaiver(
   // 3. Upload to storage
   const pdfPath = await uploadPdf(supabase, input.waiverId, pdfBytes, input.signedAt)
 
+  return { documentHash, pdfPath }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Supplemental documents (multi-document check-in)
+// ═══════════════════════════════════════════════════════════════════════════
+// A supplemental document (photo release, code of conduct, …) is simpler
+// than the adaptive waiver: a title + a body of prose, one signature, and
+// — for a minor — a guardian signature, sealed into its own PDF anchored
+// to the check-in's waiver. It reuses this module's text/hash/upload
+// primitives but has its own layout, so the shipped waiver buildPdf is
+// left byte-for-byte untouched.
+
+export interface SignedDocumentSealInput {
+  waiverId: string          // the check-in anchor; used only to build the storage path
+  documentKey: string       // stable slug, part of the storage path
+  title: string
+  body: string              // already rendered (vars substituted) prose; may contain newlines
+  participantName: string
+  email: string
+  activityLabel: string
+  signedAt: string          // ISO 8601
+  ipAddress: string | null
+  isMinor: boolean
+  guardianName: string | null
+  signatureData: string           // data-URL (image/png or image/jpeg)
+  guardianSignatureData?: string | null
+}
+
+// Deterministic, human-readable representation hashed for the document —
+// same philosophy as buildCanonicalDocument for waivers.
+export function buildCanonicalSignedDocument(input: SignedDocumentSealInput): string {
+  const lines: string[] = [
+    'LIABL SUPPLEMENTAL DOCUMENT',
+    '===========================',
+    '',
+    `Document    : ${input.title}`,
+    `Signed at   : ${input.signedAt}`,
+    `IP address  : ${input.ipAddress ?? 'not captured'}`,
+    `Legal basis : ESIGN Act (15 U.S.C. § 7001) · UETA`,
+    '',
+    'PARTICIPANT',
+    '-----------',
+    `Full name   : ${input.participantName}`,
+    `Email       : ${input.email}`,
+    `Activity    : ${input.activityLabel}`,
+    `Minor       : ${input.isMinor ? 'Yes' : 'No'}`,
+    ...(input.isMinor && input.guardianName ? [`Guardian    : ${input.guardianName}`] : []),
+    '',
+    'DOCUMENT',
+    '--------',
+    input.body,
+    '',
+    'SIGNATURE',
+    '---------',
+    `By signing, ${input.participantName} agrees to the document above.`,
+    `Signature captured electronically on ${input.signedAt}.`,
+  ]
+  return lines.join('\n')
+}
+
+export function documentPdfPath(waiverId: string, documentKey: string, signedAt: string): string {
+  const date = new Date(signedAt)
+  const yyyy = date.getFullYear()
+  const mm   = String(date.getMonth() + 1).padStart(2, '0')
+  // Slug the key defensively so it can never break the storage path.
+  const safeKey = documentKey.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return `documents/${yyyy}/${mm}/${waiverId}-${safeKey}.pdf`
+}
+
+export async function buildDocumentPdf(input: SignedDocumentSealInput, documentHash: string): Promise<Uint8Array> {
+  const doc         = await PDFDocument.create()
+  const fontRegular = await doc.embedFont(StandardFonts.Helvetica)
+  const fontBold    = await doc.embedFont(StandardFonts.HelveticaBold)
+  const fontMono    = await doc.embedFont(StandardFonts.Courier)
+  const brandColor  = rgb(0.294, 0.165, 0.812)  // #4B2ACF
+
+  const safe = {
+    title:         sanitizeForPdf(input.title, fontBold),
+    body:          sanitizeForPdf(input.body, fontRegular),
+    participant:   sanitizeForPdf(input.participantName, fontRegular),
+    email:         sanitizeForPdf(input.email, fontRegular),
+    activityLabel: sanitizeForPdf(input.activityLabel, fontRegular),
+    guardianName:  input.guardianName ? sanitizeForPdf(input.guardianName, fontRegular) : null,
+  }
+
+  let page = addPage(doc)
+  let curY = PAGE_HEIGHT - MARGIN
+  let pageCount = 1
+
+  function drawFooter(p: PDFPage, pageNum: number) {
+    const footerY = MARGIN - 10
+    p.drawText(`SHA-256: ${documentHash}`, { x: MARGIN, y: footerY, font: fontMono, size: 6, color: rgb(0.6, 0.6, 0.6) })
+    p.drawText(`Page ${pageNum}`, { x: PAGE_WIDTH - MARGIN - 30, y: footerY, font: fontRegular, size: 7, color: rgb(0.6, 0.6, 0.6) })
+    p.drawLine({ start: { x: MARGIN, y: footerY + 8 }, end: { x: PAGE_WIDTH - MARGIN, y: footerY + 8 }, thickness: 0.5, color: rgb(0.85, 0.85, 0.85) })
+  }
+  function ensureSpace(needed: number): void {
+    if (curY - needed < MARGIN + 20) {
+      drawFooter(page, pageCount)
+      page = addPage(doc)
+      pageCount++
+      curY = PAGE_HEIGHT - MARGIN
+    }
+  }
+  function nl(lines = 1) { curY -= LINE_HEIGHT * lines }
+
+  async function embedSignatureImage(dataUrl: string): Promise<boolean> {
+    const isJpeg = dataUrl.startsWith('data:image/jpeg')
+    const isPng  = dataUrl.startsWith('data:image/png')
+    if (!isJpeg && !isPng) return false
+    const base64   = dataUrl.split(',')[1]
+    const sigBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+    const sigImage = isJpeg ? await doc.embedJpg(sigBytes) : await doc.embedPng(sigBytes)
+    const MAX_SIG_WIDTH  = BODY_WIDTH * 0.6
+    const MAX_SIG_HEIGHT = 80
+    const ratio = Math.min(MAX_SIG_WIDTH / sigImage.width, MAX_SIG_HEIGHT / sigImage.height)
+    const sigW  = sigImage.width  * ratio
+    const sigH  = sigImage.height * ratio
+    ensureSpace(sigH + LINE_HEIGHT * 3)
+    page.drawRectangle({ x: MARGIN, y: curY - sigH, width: sigW + 16, height: sigH + 8, color: rgb(0.97, 0.97, 1), borderColor: rgb(0.8, 0.75, 1), borderWidth: 0.75 })
+    page.drawImage(sigImage, { x: MARGIN + 8, y: curY - sigH, width: sigW, height: sigH })
+    curY -= sigH + 16
+    return true
+  }
+
+  // ── Header ──
+  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 70, width: PAGE_WIDTH, height: 70, color: brandColor })
+  await drawText(page, 'LIABL', MARGIN, PAGE_HEIGHT - 30, fontBold, 18, rgb(1, 1, 1))
+  await drawText(page, 'Supplemental Document', MARGIN + 52, PAGE_HEIGHT - 30, fontRegular, 12, rgb(0.85, 0.80, 1))
+  await drawText(page, `Signed: ${new Date(input.signedAt).toLocaleString()}`, MARGIN, PAGE_HEIGHT - 52, fontRegular, 8, rgb(0.85, 0.85, 1))
+  curY = PAGE_HEIGHT - 90
+  drawFooter(page, pageCount)
+
+  // ── Document title ──
+  ensureSpace(LINE_HEIGHT * 2)
+  await drawText(page, safe.title, MARGIN, curY, fontBold, 14, rgb(0.1, 0.1, 0.1)); nl(2)
+
+  // ── Participant block ──
+  ensureSpace(60)
+  await drawText(page, 'PARTICIPANT', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl()
+  page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) }); nl()
+  const participantFields: [string, string][] = [
+    ['Full name', safe.participant],
+    ['Email',     safe.email],
+    ['Activity',  safe.activityLabel],
+    ['Minor',     input.isMinor ? 'Yes' : 'No'],
+    ...(input.isMinor && safe.guardianName ? [['Guardian', safe.guardianName] as [string, string]] : []),
+  ]
+  for (const [label, value] of participantFields) {
+    ensureSpace(LINE_HEIGHT)
+    await drawText(page, `${label}:`, MARGIN, curY, fontRegular, 9, rgb(0.5, 0.5, 0.5))
+    await drawText(page, value, MARGIN + 90, curY, fontBold, 9)
+    nl()
+  }
+  nl()
+
+  // ── Document body ──
+  ensureSpace(30)
+  await drawText(page, 'DOCUMENT', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl()
+  page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) }); nl()
+  // Preserve authored paragraph breaks: split on newlines, wrap each.
+  for (const paragraph of safe.body.split('\n')) {
+    if (paragraph.trim() === '') { nl(0.5); continue }
+    for (const line of wrapText(paragraph, fontRegular, 9, BODY_WIDTH)) {
+      ensureSpace(LINE_HEIGHT)
+      await drawText(page, line, MARGIN, curY, fontRegular, 9, rgb(0.2, 0.2, 0.2))
+      nl()
+    }
+  }
+  nl()
+
+  // ── Signature ──
+  ensureSpace(140)
+  page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) }); nl()
+  await drawText(page, 'ELECTRONIC SIGNATURE', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl(2)
+  await drawText(page, `By signing below, ${safe.participant} agrees to this document.`, MARGIN, curY, fontRegular, 8); nl(2)
+  try {
+    if (!(await embedSignatureImage(input.signatureData))) {
+      await drawText(page, '[Signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
+    }
+  } catch {
+    await drawText(page, '[Signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
+  }
+  await drawText(page, `Signed: ${safe.participant}`, MARGIN, curY, fontBold, 9); nl()
+  await drawText(page, `Date:   ${new Date(input.signedAt).toLocaleString()}`, MARGIN, curY, fontRegular, 8, rgb(0.4, 0.4, 0.4)); nl()
+  if (input.ipAddress) {
+    await drawText(page, `IP:     ${input.ipAddress}`, MARGIN, curY, fontMono, 8, rgb(0.5, 0.5, 0.5)); nl()
+  }
+
+  // ── Guardian signature (minors only) ──
+  if (input.isMinor && input.guardianSignatureData) {
+    nl()
+    ensureSpace(140)
+    await drawText(page, 'GUARDIAN SIGNATURE', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl(2)
+    const guardianLine = safe.guardianName
+      ? `${safe.guardianName} authorizes and agrees to this document on behalf of ${safe.participant}.`
+      : `Parent/guardian authorizes and agrees to this document on behalf of ${safe.participant}.`
+    await drawText(page, guardianLine, MARGIN, curY, fontRegular, 8); nl(2)
+    try {
+      if (!(await embedSignatureImage(input.guardianSignatureData))) {
+        await drawText(page, '[Guardian signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
+      }
+    } catch {
+      await drawText(page, '[Guardian signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
+    }
+    if (safe.guardianName) {
+      await drawText(page, `Guardian: ${safe.guardianName}`, MARGIN, curY, fontBold, 9); nl()
+    }
+  }
+
+  nl()
+  await drawText(page, 'This document was signed electronically pursuant to the ESIGN Act (15 U.S.C. § 7001) and UETA.', MARGIN, curY, fontRegular, 7, rgb(0.5, 0.5, 0.5)); nl()
+  await drawText(page, `SHA-256 document hash: ${documentHash}`, MARGIN, curY, fontMono, 6.5, rgb(0.5, 0.5, 0.5))
+
+  return doc.save()
+}
+
+// Main entry point for supplemental documents — mirrors sealWaiver.
+export async function sealSignedDocument(
+  supabase: SupabaseClient,
+  input: SignedDocumentSealInput
+): Promise<SealResult> {
+  const canonical    = buildCanonicalSignedDocument(input)
+  const documentHash = await sha256Hex(canonical)
+  const pdfBytes     = await buildDocumentPdf(input, documentHash)
+  const path         = documentPdfPath(input.waiverId, input.documentKey, input.signedAt)
+  const pdfPath      = await uploadPdfToPath(supabase, path, pdfBytes)
   return { documentHash, pdfPath }
 }

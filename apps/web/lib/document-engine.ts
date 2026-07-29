@@ -97,6 +97,10 @@ export interface EngineData {
   operatorName:        string
   governingLawState:   string
   governingLawCounty:  string | null
+  // Multi-document check-in: how a minor's guardian signs supplemental
+  // documents — 'per_document' (a signature on each) or 'single' (one
+  // signature reused across all). Defaults to 'per_document'.
+  minorGuardianSignatureMode: 'per_document' | 'single'
   activities:          ActivityRecord[]
   questions:           QuestionRecord[]
   clauses:             ClauseRow[]
@@ -229,7 +233,7 @@ export async function fetchEngineData(
 
   const { data: operator, error: operatorError } = await supabase
     .from('operators')
-    .select('id, slug, name, governing_law_state, governing_law_county, status')
+    .select('id, slug, name, governing_law_state, governing_law_county, status, minor_guardian_signature_mode')
     .eq('slug', resolvedSlug)
     .maybeSingle()
 
@@ -310,6 +314,8 @@ export async function fetchEngineData(
     operatorName:       operator.name,
     governingLawState:  operator.governing_law_state,
     governingLawCounty: operator.governing_law_county ?? null,
+    minorGuardianSignatureMode:
+      operator.minor_guardian_signature_mode === 'single' ? 'single' : 'per_document',
     activities,
     questions,
     clauses,

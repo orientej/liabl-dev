@@ -26,6 +26,9 @@ export interface WaiverConfirmationInput {
   operatorName: string
   activityLabel: string
   signedAt: string   // ISO timestamp
+  // Multi-document check-in: titles of any supplemental documents signed
+  // alongside the waiver in this check-in. Empty/undefined = waiver only.
+  documentTitles?: string[]
 }
 
 const FROM_ADDRESS = process.env.RESEND_FROM_ADDRESS || 'LIABL <waivers@liabl.app>'
@@ -37,6 +40,17 @@ export async function sendWaiverConfirmationEmail(input: WaiverConfirmationInput
   const signedTime = new Date(input.signedAt).toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit',
   })
+
+  const documentTitles = input.documentTitles ?? []
+  const documentsBlock = documentTitles.length > 0
+    ? `
+        <p style="font-size: 14px; color: #444; line-height: 1.5; margin-top: 16px;">
+          You also signed the following ${documentTitles.length === 1 ? 'document' : 'documents'}:
+        </p>
+        <ul style="font-size: 14px; color: #444; line-height: 1.6; padding-left: 20px; margin-top: 4px;">
+          ${documentTitles.map(t => `<li>${escapeHtml(t)}</li>`).join('')}
+        </ul>`
+    : ''
 
   const { error } = await getClient().emails.send({
     from: FROM_ADDRESS,
@@ -50,6 +64,7 @@ export async function sendWaiverConfirmationEmail(input: WaiverConfirmationInput
           <strong>${escapeHtml(input.operatorName)}</strong> was signed on
           ${signedDate} at ${signedTime} and is on file.
         </p>
+        ${documentsBlock}
         <p style="font-size: 12px; color: #888; margin-top: 24px;">
           This email confirms your signature was recorded. If you didn't sign this waiver, please contact ${escapeHtml(input.operatorName)} directly.
         </p>

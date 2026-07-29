@@ -5,6 +5,7 @@ import { Logo } from '@liabl/ui'
 import { PageNav } from '@liabl/ui'
 import RosterTab        from '@/components/operator/RosterTab'
 import TemplateTab      from '@/components/operator/TemplateTab'
+import DocumentsTab     from '@/components/operator/DocumentsTab'
 import AnalyticsTab     from '@/components/operator/AnalyticsTab'
 import IncidentTab      from '@/components/operator/IncidentTab'
 import MobileTab        from '@/components/operator/MobileTab'
@@ -21,7 +22,7 @@ import {
   IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
 } from '@liabl/ui'
 
-type Tab = 'setup'|'roster'|'analytics'|'templates'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
+type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
 
 const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
 
@@ -166,6 +167,7 @@ export default function OperatorPage() {
     { key:'roster',        label:'Roster',         Icon: IconSigned     },
     { key:'analytics',     label:'Analytics',      Icon: IconAnalytics  },
     { key:'templates',     label:'Templates',      Icon: IconTemplate   },
+    { key:'documents',     label:'Documents',      Icon: IconSigned     },
     { key:'incidents',     label:'Incidents',      Icon: IconAlert      },
     { key:'notifications', label:'Notifications',  Icon: IconAuditTrail },
     { key:'multilocation', label:'Multi-Location', Icon: IconLocation   },
@@ -255,6 +257,7 @@ export default function OperatorPage() {
         {tab === 'roster'        && <RosterTab />}
         {tab === 'analytics'     && <AnalyticsTab />}
         {tab === 'templates'     && <TemplateTab />}
+        {tab === 'documents'     && <DocumentsTab />}
         {tab === 'incidents'     && <IncidentTab />}
         {tab === 'notifications' && <NotificationTab />}
         {tab === 'multilocation' && <MultiLocationTab />}

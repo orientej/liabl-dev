@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import { calculateRiskScore } from '@/components/RiskScore'
 import { fetchWaiverAuditTrail, type AuditEvent } from '@/lib/audit'
 import type { ActivityRecord } from '@/lib/document-engine'
+import SignedDocumentsSection from '@/components/operator/SignedDocumentsSection'
 
 interface Participant { full_name: string; email: string }
 
@@ -273,6 +274,9 @@ export default function WaiverDetail({
                 {risk.level === 'low'      && 'No additional precautions required.'}
               </p>
             </div>
+
+            {/* Supplemental documents signed in this check-in (multi-document) */}
+            <SignedDocumentsSection waiverId={row.id} isDemo={isDemo} />
 
             {/* Audit trail — real events from audit_events table */}
             <div className="bg-white rounded-xl border border-black/10 overflow-hidden">

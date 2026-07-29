@@ -15,6 +15,9 @@ import { StepGuardian } from '@/components/participant/StepGuardian'
 import StepDocument   from '@/components/participant/StepDocument'
 import StepSignature  from '@/components/participant/StepSignature'
 import StepConfirm    from '@/components/participant/StepConfirm'
+import DocumentSigningFlow, { type DocumentSigningContext } from '@/components/participant/DocumentSigningFlow'
+import { resolveApplicableDocuments, type ResolvedDocument } from '@/lib/signed-documents'
+import { createClient as createAnonSupabase } from '@/lib/supabase-anon'
 import { PageNav } from '@liabl/ui'
 
 const ADULT_STEPS = ['Identity','Activity','Health','Review','Sign']
@@ -49,6 +52,21 @@ export default function ParticipantFlow() {
   // for why this is never silently auto-restored.
   const [checkedDraft, setCheckedDraft] = useState(false)
   const [draftPrompt,  setDraftPrompt]  = useState<DraftState | null>(null)
+
+  // Multi-document check-in (step 8): the supplemental documents to sign
+  // after the waiver, and the context the document loop needs. Populated
+  // in attemptSave once the waiver is sealed; empty for operators with no
+  // applicable documents (the check-in then finishes exactly as before).
+  const [docQueue,   setDocQueue]   = useState<ResolvedDocument[]>([])
+  const [checkInCtx, setCheckInCtx] = useState<DocumentSigningContext | null>(null)
+
+  // A single anonymous client for the document loop, created lazily — same
+  // genuinely-anonymous client the signing path uses (see lib/supabase-anon).
+  const anonSupabaseRef = useRef<ReturnType<typeof createAnonSupabase> | null>(null)
+  function getAnonSupabase() {
+    if (!anonSupabaseRef.current) anonSupabaseRef.current = createAnonSupabase()
+    return anonSupabaseRef.current
+  }
 
   const labels = engineData ? buildActivityLabels(engineData) : {}
 
@@ -459,19 +477,44 @@ export default function ParticipantFlow() {
         // which is accurate.
       }
 
-      // SUCCESS
+      // SUCCESS — waiver signed & sealed.
       setSaveState({ kind: 'idle' })
       setPendingSignature(null)
       clearDraft(sessionId)
-      setStep(7)
 
-      // v25 M6 security review — this used to be a false claim in
-      // StepConfirm.tsx's copy ("emailed to you") with no actual email
-      // ever sent. Fire-and-forget: the waiver is already validly signed
-      // regardless of whether this email succeeds, so it must never
-      // block or delay the confirmation screen the participant sees.
-      fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
-        .catch(err => console.error('[attemptSave] confirmation email failed:', err))
+      // Multi-document check-in: resolve any supplemental documents this
+      // operator requires for this activity. Resolution never blocks a
+      // validly-signed check-in — on any failure we finish with the
+      // waiver alone. Reuses the anon client already created above.
+      const activityId = engineData.activities.find(a => a.key === full.activityKey)?.id
+      let applicableDocs: ResolvedDocument[] = []
+      if (activityId) {
+        try {
+          applicableDocs = await resolveApplicableDocuments(supabase, engineData.operatorId, activityId)
+        } catch (docErr) {
+          console.error('[attemptSave] resolve documents failed:', docErr)
+        }
+      }
+
+      if (applicableDocs.length > 0) {
+        setDocQueue(applicableDocs)
+        setCheckInCtx({
+          waiverId,
+          operatorId:                 engineData.operatorId,
+          participantId:              participant.id,
+          participantName:            full.fullName,
+          email:                      full.email,
+          activityLabel:              labels[full.activityKey] ?? full.activityKey,
+          ipAddress:                  ipAddressRef.current,
+          isMinor:                    full.isMinor ?? false,
+          guardianName:               full.guardianName ?? null,
+          guardianSignatureData:      full.guardianSig ?? null,
+          minorGuardianSignatureMode: engineData.minorGuardianSignatureMode,
+        })
+        setStep(8)   // enter the document-signing loop
+      } else {
+        finishCheckIn(waiverId)
+      }
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
@@ -486,6 +529,17 @@ export default function ParticipantFlow() {
         setSaveState({ kind: 'retryable_error', attempts: newAttempts, lastError: message })
       }
     }
+  }
+
+  // Fires the confirmation email (which now enumerates any supplemental
+  // documents signed too) and shows the confirmation screen. Called once
+  // the whole check-in — waiver plus any documents — is complete.
+  function finishCheckIn(waiverId: string) {
+    setStep(7)
+    // Fire-and-forget: a validly-signed check-in must never be blocked or
+    // delayed by the confirmation email.
+    fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
+      .catch(err => console.error('[finishCheckIn] confirmation email failed:', err))
   }
 
   function handleSign(sigData: string) {
@@ -503,6 +557,8 @@ export default function ParticipantFlow() {
     setClauses([])
     setSaveState({ kind: 'idle' })
     setPendingSignature(null)
+    setDocQueue([])
+    setCheckInCtx(null)
     resolvedSessionIdRef.current = null
     clearDraft(sessionId)
   }
@@ -655,6 +711,14 @@ export default function ParticipantFlow() {
               </>
             )}
             {step === 7 && <StepConfirm answers={answers as ParticipantAnswers} labels={labels} onRestart={restart} />}
+            {step === 8 && checkInCtx && (
+              <DocumentSigningFlow
+                documents={docQueue}
+                supabase={getAnonSupabase()}
+                context={checkInCtx}
+                onComplete={() => finishCheckIn(checkInCtx.waiverId)}
+              />
+            )}
           </div>
           </>
           )}

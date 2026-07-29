@@ -84,10 +84,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ sent: false, reason: 'no participant email on file' }, { status: 404 })
   }
 
-  const [{ data: operator }, { data: activity }] = await Promise.all([
+  const [{ data: operator }, { data: activity }, { data: signedDocs }] = await Promise.all([
     supabase.from('operators').select('name').eq('id', waiver.operator_id).maybeSingle(),
     supabase.from('activities').select('display_name').eq('operator_id', waiver.operator_id).eq('key', waiver.activity_key).maybeSingle(),
+    // Multi-document check-in: any supplemental documents signed in this
+    // check-in, so the confirmation email lists everything on file.
+    supabase.from('signed_documents').select('title_snapshot').eq('waiver_id', waiver.id).order('created_at'),
   ])
+
+  const documentTitles = (signedDocs ?? [])
+    .map(d => d.title_snapshot as string)
+    .filter((t): t is string => !!t)
 
   try {
     await sendWaiverConfirmationEmail({
@@ -96,6 +103,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       operatorName:    operator?.name ?? 'the operator',
       activityLabel:   activity?.display_name ?? waiver.activity_key,
       signedAt:        waiver.signed_at,
+      documentTitles,
     })
   } catch (sendError) {
     // Email delivery is best-effort from the participant's perspective —
