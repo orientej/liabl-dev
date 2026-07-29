@@ -20,6 +20,25 @@ export interface ResolvedDocument {
   sortOrder:  number
 }
 
+// Everything the document-signing loop needs about the check-in it belongs
+// to. Lives here (not in the component) so draft-storage can persist it for
+// mid-loop resume. activityId is carried so a resume can re-resolve the
+// applicable documents from scratch.
+export interface DocumentSigningContext {
+  waiverId:                   string
+  operatorId:                 string
+  activityId:                 string
+  participantId:              string
+  participantName:            string
+  email:                      string
+  activityLabel:              string
+  ipAddress:                  string | null
+  isMinor:                    boolean
+  guardianName:               string | null   // from the waiver (used in 'single' mode)
+  guardianSignatureData:      string | null   // from the waiver (used in 'single' mode)
+  minorGuardianSignatureMode: 'per_document' | 'single'
+}
+
 /**
  * Returns the operator's published, non-archived supplemental documents
  * that apply to the given activity, in sort order. Content comes from the

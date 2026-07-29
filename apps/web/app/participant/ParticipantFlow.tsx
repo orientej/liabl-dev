@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels, resolveOperatorSlugForSession, resolveTemplateVersionForSession } from '@/lib/document-engine'
-import { saveDraft, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
+import { saveDraft, saveDocumentsPhase, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
 import { Logo } from '@liabl/ui'
@@ -59,6 +59,9 @@ export default function ParticipantFlow() {
   // applicable documents (the check-in then finishes exactly as before).
   const [docQueue,   setDocQueue]   = useState<ResolvedDocument[]>([])
   const [checkInCtx, setCheckInCtx] = useState<DocumentSigningContext | null>(null)
+  // Keys of documents handled (signed or skipped) this check-in — tracked
+  // so mid-loop progress can be persisted for resume.
+  const [completedDocKeys, setCompletedDocKeys] = useState<string[]>([])
 
   // A single anonymous client for the document loop, created lazily — same
   // genuinely-anonymous client the signing path uses (see lib/supabase-anon).
@@ -480,7 +483,6 @@ export default function ParticipantFlow() {
       // SUCCESS — waiver signed & sealed.
       setSaveState({ kind: 'idle' })
       setPendingSignature(null)
-      clearDraft(sessionId)
 
       // Multi-document check-in: resolve any supplemental documents this
       // operator requires for this activity. Resolution never blocks a
@@ -496,11 +498,11 @@ export default function ParticipantFlow() {
         }
       }
 
-      if (applicableDocs.length > 0) {
-        setDocQueue(applicableDocs)
-        setCheckInCtx({
+      if (applicableDocs.length > 0 && activityId) {
+        const ctx: DocumentSigningContext = {
           waiverId,
           operatorId:                 engineData.operatorId,
+          activityId,
           participantId:              participant.id,
           participantName:            full.fullName,
           email:                      full.email,
@@ -510,9 +512,18 @@ export default function ParticipantFlow() {
           guardianName:               full.guardianName ?? null,
           guardianSignatureData:      full.guardianSig ?? null,
           minorGuardianSignatureMode: engineData.minorGuardianSignatureMode,
-        })
+        }
+        setDocQueue(applicableDocs)
+        setCheckInCtx(ctx)
+        setCompletedDocKeys([])
+        // Persist a documents-phase draft (replaces the pre-waiver draft)
+        // so a reload mid-loop can resume at the outstanding documents.
+        saveDocumentsPhase(sessionId, answers, { checkInCtx: ctx, completedKeys: [] })
         setStep(8)   // enter the document-signing loop
       } else {
+        // No documents (or activity unresolved): nothing to resume — clear
+        // the pre-waiver draft and finish.
+        clearDraft(sessionId)
         finishCheckIn(waiverId)
       }
 
@@ -535,11 +546,52 @@ export default function ParticipantFlow() {
   // documents signed too) and shows the confirmation screen. Called once
   // the whole check-in — waiver plus any documents — is complete.
   function finishCheckIn(waiverId: string) {
+    // The whole check-in is done — drop any documents-phase draft so it
+    // can't be resumed after completion.
+    clearDraft(sessionId)
     setStep(7)
     // Fire-and-forget: a validly-signed check-in must never be blocked or
     // delayed by the confirmation email.
     fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
       .catch(err => console.error('[finishCheckIn] confirmation email failed:', err))
+  }
+
+  // Records that one document was handled (signed or skipped) and re-saves
+  // the documents-phase draft, so a reload resumes at what's left.
+  function onDocumentDone(key: string) {
+    setCompletedDocKeys(prev => {
+      const next = prev.includes(key) ? prev : [...prev, key]
+      if (checkInCtx) saveDocumentsPhase(sessionId, answers, { checkInCtx, completedKeys: next })
+      return next
+    })
+  }
+
+  // Resumes the document loop from a persisted documents-phase draft:
+  // re-resolves the applicable documents and drops the ones already done.
+  async function resumeDocuments() {
+    const phase = draftPrompt?.documentsPhase
+    if (!phase) return
+    setDraftPrompt(null)
+    try {
+      const remaining = (await resolveApplicableDocuments(
+        getAnonSupabase(), phase.checkInCtx.operatorId, phase.checkInCtx.activityId,
+      )).filter(d => !phase.completedKeys.includes(d.key))
+
+      if (remaining.length === 0) {
+        finishCheckIn(phase.checkInCtx.waiverId)
+        return
+      }
+      setDocQueue(remaining)
+      setCheckInCtx(phase.checkInCtx)
+      setCompletedDocKeys(phase.completedKeys)
+      setStep(8)
+    } catch (e) {
+      // The waiver is already validly signed; if we can't re-resolve the
+      // documents, fail safe to the confirmation screen rather than trap
+      // the participant.
+      console.error('[resumeDocuments] failed:', e)
+      finishCheckIn(phase.checkInCtx.waiverId)
+    }
   }
 
   function handleSign(sigData: string) {
@@ -559,6 +611,7 @@ export default function ParticipantFlow() {
     setPendingSignature(null)
     setDocQueue([])
     setCheckInCtx(null)
+    setCompletedDocKeys([])
     resolvedSessionIdRef.current = null
     clearDraft(sessionId)
   }
@@ -584,6 +637,23 @@ export default function ParticipantFlow() {
             <div className="card text-center">
               <h2 className="font-serif text-xl mb-2" style={{ letterSpacing:'-0.01em' }}>Can&apos;t load this check-in link</h2>
               <p className="text-sm text-gray-500">{engineError}</p>
+            </div>
+          ) : draftPrompt?.documentsPhase ? (
+            // Multi-document resume — the waiver is already signed; this
+            // offers to continue at the outstanding documents rather than
+            // re-signing anything. Same never-silently-restore safeguard as
+            // the pre-waiver prompt below.
+            <div className="card">
+              <h2 className="font-serif text-xl mb-2" style={{ letterSpacing:'-0.01em' }}>Resume remaining documents?</h2>
+              <p className="text-sm text-gray-500 mb-5">
+                <span className="font-medium text-ink">{draftPrompt.answers.fullName || 'Someone'}</span>
+                {' '}signed the waiver about {draftAge} minute{draftAge === 1 ? '' : 's'} ago on this device but
+                still has documents left to sign. If this isn&apos;t you, start fresh below.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={discardDraft} className="btn-secondary">Start fresh</button>
+                <button onClick={resumeDocuments} className="btn-primary">Resume documents</button>
+              </div>
             </div>
           ) : draftPrompt ? (
             // v25 M6 — never silently restore. Whoever's holding the
@@ -716,6 +786,7 @@ export default function ParticipantFlow() {
                 documents={docQueue}
                 supabase={getAnonSupabase()}
                 context={checkInCtx}
+                onDocumentDone={onDocumentDone}
                 onComplete={() => finishCheckIn(checkInCtx.waiverId)}
               />
             )}

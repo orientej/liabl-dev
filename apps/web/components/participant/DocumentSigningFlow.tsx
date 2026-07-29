@@ -12,32 +12,23 @@ import { useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import StepSignature from '@/components/participant/StepSignature'
 import { StepGuardian } from '@/components/participant/StepGuardian'
-import { sealAndRecordSignedDocument, renderDocumentBody, type ResolvedDocument } from '@/lib/signed-documents'
+import { sealAndRecordSignedDocument, renderDocumentBody, type ResolvedDocument, type DocumentSigningContext } from '@/lib/signed-documents'
 
-export interface DocumentSigningContext {
-  waiverId:                   string
-  operatorId:                 string
-  participantId:              string
-  participantName:            string
-  email:                      string
-  activityLabel:              string
-  ipAddress:                  string | null
-  isMinor:                    boolean
-  guardianName:               string | null   // from the waiver (used in 'single' mode)
-  guardianSignatureData:      string | null   // from the waiver (used in 'single' mode)
-  minorGuardianSignatureMode: 'per_document' | 'single'
-}
+export type { DocumentSigningContext }
 
 interface Props {
   documents: ResolvedDocument[]
   supabase:  SupabaseClient
   context:   DocumentSigningContext
+  // Called after each document is handled (signed or skipped), with its
+  // key — lets the parent persist mid-loop progress for resume.
+  onDocumentDone?: (key: string) => void
   onComplete: () => void
 }
 
 type SubStep = 'review' | 'sign' | 'guardian'
 
-export default function DocumentSigningFlow({ documents, supabase, context, onComplete }: Props) {
+export default function DocumentSigningFlow({ documents, supabase, context, onDocumentDone, onComplete }: Props) {
   const [index,          setIndex]          = useState(0)
   const [subStep,        setSubStep]        = useState<SubStep>('review')
   const [pendingSig,     setPendingSig]     = useState<string | null>(null)
@@ -84,6 +75,7 @@ export default function DocumentSigningFlow({ documents, supabase, context, onCo
         signatureData,
         guardianSignatureData: context.isMinor ? guardianSig : null,
       })
+      onDocumentDone?.(doc.key)
       advance()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this document. Please try again.')
@@ -111,6 +103,7 @@ export default function DocumentSigningFlow({ documents, supabase, context, onCo
 
   function skipOptional() {
     if (!doc || doc.required) return
+    onDocumentDone?.(doc.key)
     advance()
   }
 

@@ -97,6 +97,9 @@ export default function RosterTab() {
   const [sessions,     setSessions]     = useState<SessionRecord[]>([])
   const [sessionFilter, setSessionFilter] = useState<string>('all')
   const [activities,   setActivities]   = useState<ActivityRecord[]>([])
+  // Multi-document check-in: count of supplemental documents signed per
+  // check-in (waiver id -> count), for the roster row badge.
+  const [docCounts,    setDocCounts]    = useState<Record<string, number>>({})
 
   const activitiesByKey = useMemo(
     () => Object.fromEntries(activities.map(a => [a.key, a])),
@@ -179,6 +182,23 @@ export default function RosterTab() {
           })
           const returningEmails = new Set(Object.keys(emailCounts).filter(e => emailCounts[e] > 1))
           setReturningIds(new Set(rows.filter(r => returningEmails.has(r.participants?.email ?? '')).map(r => r.id)))
+
+          // Multi-document check-in: count supplemental documents per
+          // check-in so rows with extra signed documents are flagged.
+          try {
+            const { data: docRows } = await supabase
+              .from('signed_documents')
+              .select('waiver_id')
+              .in('waiver_id', rows.map(r => r.id))
+            const counts: Record<string, number> = {}
+            for (const d of docRows ?? []) {
+              const wid = d.waiver_id as string
+              counts[wid] = (counts[wid] ?? 0) + 1
+            }
+            setDocCounts(counts)
+          } catch (docErr) {
+            console.error('[RosterTab] document counts load failed:', docErr)
+          }
         }
       } catch (e) {
         console.error('[RosterTab] load failed, showing demo data:', e)
@@ -367,6 +387,13 @@ export default function RosterTab() {
                     )}
                   </div>
                 </div>
+
+                {isSigned && (docCounts[w.id] ?? 0) > 0 && (
+                  <span className="text-xs px-2 py-1 rounded-full border border-black/10 text-gray-500 shrink-0 flex items-center gap-1"
+                    title={`${docCounts[w.id]} supplemental document${docCounts[w.id] === 1 ? '' : 's'} signed`}>
+                    📄 {docCounts[w.id]}
+                  </span>
+                )}
 
                 {isSigned && (
                   <div className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border font-medium shrink-0 ${rs.badge}`}>

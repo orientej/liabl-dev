@@ -22,11 +22,23 @@
 // than someone still mid-signup.
 
 import type { ParticipantAnswers } from '@/lib/document-engine'
+import type { DocumentSigningContext } from '@/lib/signed-documents'
+
+// Multi-document check-in: state for resuming the supplemental-document
+// loop after the waiver is already signed. When present, the resume prompt
+// offers to continue at the outstanding documents rather than re-signing.
+export interface DocumentsPhaseState {
+  checkInCtx:    DocumentSigningContext
+  completedKeys: string[]   // document keys already signed or skipped
+}
 
 export interface DraftState {
   step: number
   answers: Partial<ParticipantAnswers>
   savedAt: string   // ISO timestamp
+  // Set only after the waiver is signed and there are documents still to
+  // sign — see saveDocumentsPhase. Absent for an ordinary pre-waiver draft.
+  documentsPhase?: DocumentsPhaseState
 }
 
 const DRAFT_TTL_MS = 30 * 60 * 1000   // 30 minutes — generous for a dropped-connection reload, short enough that it won't realistically span two different participants' visits
@@ -45,6 +57,22 @@ export function saveDraft(sessionId: string, step: number, answers: Partial<Part
     // available if this device reloads, same as before this feature
     // existed at all.
   }
+}
+
+/** Persists the documents-phase state so a reload mid-loop can resume at
+ *  the outstanding documents instead of re-signing the waiver. Overwrites
+ *  the pre-waiver draft for this session (same key) — by this point the
+ *  waiver is signed, so the pre-waiver draft is no longer meaningful.
+ *  answers is kept only so the resume prompt can show whose check-in it is. */
+export function saveDocumentsPhase(
+  sessionId: string,
+  answers: Partial<ParticipantAnswers>,
+  documentsPhase: DocumentsPhaseState,
+): void {
+  try {
+    const draft: DraftState = { step: 8, answers, savedAt: new Date().toISOString(), documentsPhase }
+    localStorage.setItem(draftKey(sessionId), JSON.stringify(draft))
+  } catch { /* non-fatal, same as saveDraft */ }
 }
 
 /** Returns null if there's no draft, it's malformed, or it's past the TTL
