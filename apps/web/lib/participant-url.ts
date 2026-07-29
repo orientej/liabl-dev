@@ -63,3 +63,11 @@ export function reservationCheckInUrl(reservationId: string): string {
   const base = participantBaseUrl()
   return base ? `${base}/participant/reservation?r=${reservationId}` : ''
 }
+
+/** Group reservations — the organizer's self-service management link
+ *  (possession of the self_service_token is the capability). Lives on the
+ *  participant host. */
+export function reservationSelfServiceUrl(selfServiceToken: string): string {
+  const base = participantBaseUrl()
+  return base ? `${base}/reservation/${selfServiceToken}` : ''
+}

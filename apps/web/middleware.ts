@@ -140,7 +140,9 @@ export async function middleware(request: NextRequest) {
   // Participant paths arriving anywhere other than the participant host —
   // the printed-QR-code case. 308 preserves the method and marks it
   // permanent, which is accurate: those codes are never reissued.
-  if (!isParticipantHost && !nonProduction && participantOrigin && path.startsWith('/participant')) {
+  // /reservation is the organizer self-service page — a public,
+  // participant-host surface, forwarded here alongside /participant.
+  if (!isParticipantHost && !nonProduction && participantOrigin && (path.startsWith('/participant') || path.startsWith('/reservation'))) {
     return NextResponse.redirect(
       new URL(path + request.nextUrl.search, participantOrigin), 308
     )

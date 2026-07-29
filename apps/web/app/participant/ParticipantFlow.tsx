@@ -36,6 +36,13 @@ export default function ParticipantFlow() {
   const sessionIdFromQuery = searchParams.get('session')
   const sessionId          = sessionIdFromQuery || DEMO_SESSION_FALLBACK
 
+  // Group reservations — when a member/shared reservation link routes here,
+  // the resolver (/participant/reservation) forwarded reservation context in
+  // the query. The waiver is linked to the reservation at insert; the member
+  // (if this is a personal link) is bound after the whole check-in finishes.
+  const reservationId = searchParams.get('reservation')
+  const memberToken   = searchParams.get('rm')
+
   const [step,         setStep]         = useState(0)
   const [answers,      setAnswers]      = useState<Partial<ParticipantAnswers>>({})
   const [clauses,      setClauses]      = useState<WaiverClause[]>([])
@@ -366,6 +373,10 @@ export default function ParticipantFlow() {
           guardian_name:  full.guardianName ?? null,
           ip_address:     ipAddressRef.current,
           template_version_id: templateVersionId,
+          // Group reservations: link this check-in to its reservation (if
+          // any). reservation_member_id is set afterwards by the
+          // service-role member-complete route (anon can't write it).
+          reservation_id: reservationId ?? null,
         })
 
       if (waiverError) throw new Error(`waiver insert: ${waiverError.message}`)
@@ -554,6 +565,16 @@ export default function ParticipantFlow() {
     // delayed by the confirmation email.
     fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
       .catch(err => console.error('[finishCheckIn] confirmation email failed:', err))
+
+    // Group reservations: bind this waiver to its reservation member and
+    // advance the reservation's progress. Fire-and-forget for the same
+    // reason — the check-in is already valid regardless.
+    if (reservationId) {
+      fetch('/api/reservations/member-complete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waiverId, memberToken, reservationId }),
+      }).catch(err => console.error('[finishCheckIn] reservation member-complete failed:', err))
+    }
   }
 
   // Records that one document was handled (signed or skipped) and re-saves
