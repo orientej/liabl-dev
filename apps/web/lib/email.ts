@@ -110,6 +110,50 @@ export async function sendTeamInviteEmail(input: TeamInviteInput): Promise<void>
   if (error) throw new Error(`resend: ${error.message}`)
 }
 
+export interface ReservationInviteInput {
+  to: string
+  organizerName: string     // who's inviting them (the party organizer)
+  operatorName: string
+  activityLabel: string
+  reservationDate: string | null   // ISO date (yyyy-mm-dd) or null
+  checkInUrl: string        // the attendee's personal check-in link
+}
+
+/** Group reservations — invites one attendee to complete their waiver
+ *  ahead of the event via a personal check-in link. Server-only (Resend
+ *  key), called from a route handler. */
+export async function sendReservationInviteEmail(input: ReservationInviteInput): Promise<void> {
+  const dateLabel = input.reservationDate
+    ? new Date(`${input.reservationDate}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    : null
+
+  const { error } = await getClient().emails.send({
+    from: FROM_ADDRESS,
+    to: input.to,
+    subject: `Complete your waiver for ${input.activityLabel} with ${input.operatorName}`,
+    html: `
+      <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        <h2 style="font-size: 18px;">You're invited to complete your waiver</h2>
+        <p style="font-size: 14px; color: #444; line-height: 1.5;">
+          ${escapeHtml(input.organizerName)} has added you to a group booking for
+          <strong>${escapeHtml(input.activityLabel)}</strong> with <strong>${escapeHtml(input.operatorName)}</strong>${dateLabel ? ` on ${dateLabel}` : ''}.
+          Please complete your waiver ahead of time so you're all set on the day.
+        </p>
+        <p style="margin: 24px 0;">
+          <a href="${input.checkInUrl}" style="background: #4B2ACF; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">
+            Complete my waiver
+          </a>
+        </p>
+        <p style="font-size: 12px; color: #888;">
+          This link is personal to you. If you weren't expecting this, you can safely ignore it.
+        </p>
+      </div>
+    `,
+  })
+
+  if (error) throw new Error(`resend: ${error.message}`)
+}
+
 function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] || 'there'
 }

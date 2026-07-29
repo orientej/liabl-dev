@@ -46,3 +46,20 @@ export function participantCheckInUrl(sessionId: string): string {
   const base = participantBaseUrl()
   return base ? `${base}/participant/session/${sessionId}` : ''
 }
+
+/**
+ * Group reservations — an attendee's personal check-in link (carries the
+ * member token). The /participant/reservation page resolves the token to
+ * the bound session + reservation context and runs the normal flow.
+ */
+export function reservationMemberCheckInUrl(memberToken: string): string {
+  const base = participantBaseUrl()
+  return base ? `${base}/participant/reservation?m=${memberToken}` : ''
+}
+
+/** Group reservations — the shared (walk-up) check-in link for a whole
+ *  reservation, not tied to a specific member. */
+export function reservationCheckInUrl(reservationId: string): string {
+  const base = participantBaseUrl()
+  return base ? `${base}/participant/reservation?r=${reservationId}` : ''
+}
