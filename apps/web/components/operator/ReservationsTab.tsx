@@ -6,6 +6,7 @@
 // to an auto-created session so the whole existing check-in machinery is
 // reused.
 import { useState, useEffect, useCallback } from 'react'
+import QRCode from 'qrcode'
 import { fetchEngineData, type ActivityRecord } from '@/lib/document-engine'
 import { getCurrentOperatorMember } from '@/lib/auth'
 import { createSession } from '@/lib/sessions'
@@ -21,6 +22,11 @@ import {
 function todayISO(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Escapes text interpolated into the print-poster HTML string.
+function escapeText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -57,7 +63,14 @@ export default function ReservationsTab() {
   const [mName, setMName] = useState('')
   const [mEmail, setMEmail] = useState('')
 
+  // Shared check-in QR (for on-site walk-ups)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+
   const selected = reservations.find(r => r.id === selectedId) ?? null
+
+  // Walk-ups = signed check-ins not tied to a named attendee.
+  const membersSigned = members.filter(m => m.status === 'signed').length
+  const walkUps = selected ? Math.max(0, selected.signedCount - membersSigned) : 0
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
@@ -84,6 +97,35 @@ export default function ReservationsTab() {
   }, [])
 
   useEffect(() => { if (selectedId) loadMembers(selectedId) }, [selectedId, loadMembers])
+
+  // Generate the shared check-in QR whenever the selection changes.
+  useEffect(() => {
+    setQrDataUrl(null)
+    if (!selectedId) return
+    const url = reservationCheckInUrl(selectedId)
+    if (url) QRCode.toDataURL(url, { width: 220, margin: 1 }).then(setQrDataUrl).catch(() => {})
+  }, [selectedId])
+
+  // Opens a print-friendly poster (QR + label) in a new window.
+  function printPoster() {
+    if (!selected || !qrDataUrl) return
+    const activityLabel = activities.find(a => a.key === selected.activityKey)?.displayName ?? selected.activityKey
+    const title = selected.organizerName ? `${selected.organizerName} — ${activityLabel}` : activityLabel
+    const w = window.open('', '_blank', 'width=520,height=680')
+    if (!w) return
+    w.document.write(
+      `<html><head><title>Check-in QR</title></head>` +
+      `<body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px;color:#1a1a1a;">` +
+      `<h1 style="font-size:22px;margin-bottom:4px;">${escapeText(title)}</h1>` +
+      `<p style="color:#666;font-size:14px;margin-top:0;">Scan to check in${selected.reservationDate ? ` · ${escapeText(selected.reservationDate)}` : ''}</p>` +
+      `<img src="${qrDataUrl}" alt="Check-in QR" style="width:320px;height:320px;margin:24px auto;"/>` +
+      `<p style="color:#888;font-size:12px;">Powered by LIABL</p>` +
+      `</body></html>`
+    )
+    w.document.close()
+    w.focus()
+    w.print()
+  }
 
   async function handleCreate() {
     if (!operatorId || !fActivity) return
@@ -260,6 +302,9 @@ export default function ReservationsTab() {
                 <div className="text-right">
                   <div className="text-2xl font-bold text-brand">{selected.signedCount}/{selected.expectedCount || '?'}</div>
                   <div className="text-xs text-gray-400">signed</div>
+                  {walkUps > 0 && (
+                    <div className="text-[11px] text-gray-400">{membersSigned} invited · {walkUps} walk-up{walkUps === 1 ? '' : 's'}</div>
+                  )}
                 </div>
               </div>
 
@@ -270,9 +315,22 @@ export default function ReservationsTab() {
                   <CopyButton text={reservationSelfServiceUrl(selected.selfServiceToken)} label="Copy" />
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 text-xs text-gray-500">Shared check-in link / QR (walk-ups)</div>
+                  <div className="flex-1 text-xs text-gray-500">Shared check-in link (walk-ups)</div>
                   <CopyButton text={reservationCheckInUrl(selected.id)} label="Copy" />
                 </div>
+
+                {/* Shared check-in QR — display or print at the venue for
+                    on-site walk-up signing. */}
+                {selected.status !== 'cancelled' && qrDataUrl && (
+                  <div className="flex items-center gap-4 pt-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={qrDataUrl} alt="Shared check-in QR" className="w-28 h-28 rounded-lg border border-black/10" />
+                    <div className="text-xs text-gray-500">
+                      <div className="mb-2">Show or print this at check-in — anyone who scans it signs against this reservation as a walk-up.</div>
+                      <button onClick={printPoster} className="text-xs px-2.5 py-1 rounded-lg border border-black/10 text-gray-600 hover:border-black/20 hover:text-ink">Print QR poster</button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Attendees */}

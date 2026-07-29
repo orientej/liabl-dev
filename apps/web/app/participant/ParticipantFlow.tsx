@@ -801,7 +801,16 @@ export default function ParticipantFlow() {
                 )}
               </>
             )}
-            {step === 7 && <StepConfirm answers={answers as ParticipantAnswers} labels={labels} onRestart={restart} />}
+            {step === 7 && (
+              <StepConfirm
+                answers={answers as ParticipantAnswers}
+                labels={labels}
+                onRestart={restart}
+                // Shared reservation check-in on a kiosk: make it obvious the
+                // next walk-up can sign on the same device.
+                restartLabel={reservationId && !memberToken ? 'Check in the next person' : undefined}
+              />
+            )}
             {step === 8 && checkInCtx && (
               <DocumentSigningFlow
                 documents={docQueue}
