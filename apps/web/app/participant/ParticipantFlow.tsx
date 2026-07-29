@@ -378,6 +378,7 @@ export default function ParticipantFlow() {
           ipAddress:     ipAddressRef.current,
           isMinor:       full.isMinor ?? false,
           guardianName:  full.guardianName ?? null,
+          guardianSignatureData: full.guardianSig ?? null,
           clauses,
           signatureData: sigData,
         })

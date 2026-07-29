@@ -84,7 +84,7 @@ export default function StepSignature({ onSign, onBack, saving }: Props) {
         </div>
       )}
       <div className="relative mb-1">
-        <canvas ref={canvasRef} className="w-full h-20 rounded-xl border border-black/20 bg-surface cursor-crosshair block" style={{touchAction:'none'}}/>
+        <canvas ref={canvasRef} className="w-full h-40 rounded-xl border border-black/20 bg-surface cursor-crosshair block" style={{touchAction:'none'}}/>
         {!hasSig&&<p className="absolute inset-0 flex items-center justify-center text-xs text-gray-400 pointer-events-none">Draw your signature here</p>}
       </div>
       {hasSig&&<button onClick={clear} className="text-xs text-gray-400 hover:text-gray-600 underline mb-3">Clear</button>}

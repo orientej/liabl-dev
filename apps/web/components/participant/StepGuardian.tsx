@@ -30,7 +30,7 @@ export function StepGuardian({ minorName, onNext, onBack }: GuardianProps) {
         <div><label className="block text-xs font-medium text-gray-500 mb-1">Guardian full name</label><input className="form-input" value={guardian} onChange={e=>setGuardian(e.target.value)} placeholder="First Last"/></div>
         <div><label className="block text-xs font-medium text-gray-500 mb-1">Relationship</label><select className="form-input" value={relation} onChange={e=>setRelation(e.target.value)}><option>Parent</option><option>Legal guardian</option><option>Grandparent</option><option>Other authorized adult</option></select></div>
       </div>
-      <div className="relative mb-1"><canvas ref={canvasRef} className="w-full h-20 rounded-xl border border-black/20 bg-surface cursor-crosshair block" style={{touchAction:'none'}}/>{!hasSig&&<p className="absolute inset-0 flex items-center justify-center text-xs text-gray-400 pointer-events-none">Guardian — draw signature here</p>}</div>
+      <div className="relative mb-1"><canvas ref={canvasRef} className="w-full h-40 rounded-xl border border-black/20 bg-surface cursor-crosshair block" style={{touchAction:'none'}}/>{!hasSig&&<p className="absolute inset-0 flex items-center justify-center text-xs text-gray-400 pointer-events-none">Guardian — draw signature here</p>}</div>
       {hasSig&&<button onClick={clear} className="text-xs text-gray-400 hover:text-gray-600 underline mb-3">Clear</button>}
       <div className="flex gap-3 mt-4"><button onClick={onBack} className="btn-secondary">← Back</button><button onClick={submit} disabled={!guardian.trim()||!hasSig} className="btn-primary">Submit guardian signature →</button></div>
     </div>

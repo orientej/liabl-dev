@@ -48,6 +48,7 @@ export interface ParticipantAnswers {
   healthStatus?: string[]
   isMinor: boolean
   guardianName?: string
+  guardianSig?: string   // guardian's drawn signature (data-URL), minors only
 }
 
 export interface WaiverClause {

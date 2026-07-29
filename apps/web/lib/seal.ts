@@ -45,6 +45,7 @@ export interface SealInput {
   guardianName: string | null
   clauses: WaiverClause[]
   signatureData: string     // data-URL (image/png or image/jpeg)
+  guardianSignatureData?: string | null  // guardian's drawn signature (data-URL), minors only
 }
 
 export interface SealResult {
@@ -289,7 +290,38 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
     nl(0.5)
   }
 
-  // ── Signature page ──
+  // ── Signature section ──
+  // Embeds a signature image box at the current cursor. Returns true if an
+  // image was actually embedded, false if the data-URL wasn't a usable
+  // PNG/JPEG. Mutates curY (and may add a page via ensureSpace), exactly
+  // like the surrounding drawing code. Extracted so the participant and,
+  // for minors, the guardian signatures render through one identical path —
+  // previously only the participant signature was ever embedded, and the
+  // guardian's captured signature was silently dropped from the sealed PDF.
+  async function embedSignatureImage(dataUrl: string): Promise<boolean> {
+    const isJpeg = dataUrl.startsWith('data:image/jpeg')
+    const isPng  = dataUrl.startsWith('data:image/png')
+    if (!isJpeg && !isPng) return false
+
+    const base64   = dataUrl.split(',')[1]
+    const sigBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+    const sigImage = isJpeg ? await doc.embedJpg(sigBytes) : await doc.embedPng(sigBytes)
+
+    const MAX_SIG_WIDTH  = BODY_WIDTH * 0.6
+    const MAX_SIG_HEIGHT = 80
+    const ratio  = Math.min(MAX_SIG_WIDTH / sigImage.width, MAX_SIG_HEIGHT / sigImage.height)
+    const sigW   = sigImage.width  * ratio
+    const sigH   = sigImage.height * ratio
+
+    ensureSpace(sigH + LINE_HEIGHT * 3)
+
+    // Signature box background
+    page.drawRectangle({ x: MARGIN, y: curY - sigH, width: sigW + 16, height: sigH + 8, color: rgb(0.97, 0.97, 1), borderColor: rgb(0.8, 0.75, 1), borderWidth: 0.75 })
+    page.drawImage(sigImage, { x: MARGIN + 8, y: curY - sigH, width: sigW, height: sigH })
+    curY -= sigH + 16
+    return true
+  }
+
   ensureSpace(200)
   nl()
   page.drawLine({ start: { x: MARGIN, y: curY }, end: { x: PAGE_WIDTH - MARGIN, y: curY }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) })
@@ -297,41 +329,48 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
   await drawText(page, 'ELECTRONIC SIGNATURE', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl(2)
   await drawText(page, `By signing below, ${safe.fullName} agrees to all terms above.`, MARGIN, curY, fontRegular, 8); nl(2)
 
-  // Embed signature image if it's a valid data-URL
+  // Participant signature
   try {
-    const sigDataUrl = input.signatureData
-    const isJpeg = sigDataUrl.startsWith('data:image/jpeg')
-    const isPng  = sigDataUrl.startsWith('data:image/png')
-    if (isJpeg || isPng) {
-      const base64 = sigDataUrl.split(',')[1]
-      const sigBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0))
-      const sigImage = isJpeg
-        ? await doc.embedJpg(sigBytes)
-        : await doc.embedPng(sigBytes)
-
-      const MAX_SIG_WIDTH  = BODY_WIDTH * 0.6
-      const MAX_SIG_HEIGHT = 80
-      const ratio  = Math.min(MAX_SIG_WIDTH / sigImage.width, MAX_SIG_HEIGHT / sigImage.height)
-      const sigW   = sigImage.width  * ratio
-      const sigH   = sigImage.height * ratio
-
-      ensureSpace(sigH + LINE_HEIGHT * 3)
-
-      // Signature box background
-      page.drawRectangle({ x: MARGIN, y: curY - sigH, width: sigW + 16, height: sigH + 8, color: rgb(0.97, 0.97, 1), borderColor: rgb(0.8, 0.75, 1), borderWidth: 0.75 })
-      page.drawImage(sigImage, { x: MARGIN + 8, y: curY - sigH, width: sigW, height: sigH })
-      curY -= sigH + 16
+    const embedded = await embedSignatureImage(input.signatureData)
+    if (!embedded) {
+      await drawText(page, '[Signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
     }
   } catch {
-    // Signature image failed to embed — still produce the PDF, just log it
-    await drawText(page, '[Signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6))
-    nl()
+    // Signature image failed to embed — still produce the PDF, just note it
+    await drawText(page, '[Signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
   }
 
   await drawText(page, `Signed: ${safe.fullName}`, MARGIN, curY, fontBold, 9); nl()
   await drawText(page, `Date:   ${new Date(input.signedAt).toLocaleString()}`, MARGIN, curY, fontRegular, 8, rgb(0.4, 0.4, 0.4)); nl()
   if (input.ipAddress) {
     await drawText(page, `IP:     ${input.ipAddress}`, MARGIN, curY, fontMono, 8, rgb(0.5, 0.5, 0.5)); nl()
+  }
+
+  // Guardian signature (minors only). The participant signed above is the
+  // minor; the parent/guardian's authorization signature is legally the
+  // operative one, so it must appear in the sealed document — not just the
+  // guardian's typed name, which was all that survived before this.
+  if (input.isMinor && input.guardianSignatureData) {
+    nl()
+    ensureSpace(140)
+    await drawText(page, 'GUARDIAN SIGNATURE', MARGIN, curY, fontBold, 9, rgb(0.4, 0.4, 0.4)); nl(2)
+    const guardianLine = safe.guardianName
+      ? `${safe.guardianName} authorizes and agrees to all terms above on behalf of ${safe.fullName}.`
+      : `Parent/guardian authorizes and agrees to all terms above on behalf of ${safe.fullName}.`
+    await drawText(page, guardianLine, MARGIN, curY, fontRegular, 8); nl(2)
+
+    try {
+      const embedded = await embedSignatureImage(input.guardianSignatureData)
+      if (!embedded) {
+        await drawText(page, '[Guardian signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
+      }
+    } catch {
+      await drawText(page, '[Guardian signature image could not be rendered]', MARGIN, curY, fontRegular, 8, rgb(0.6, 0.6, 0.6)); nl()
+    }
+
+    if (safe.guardianName) {
+      await drawText(page, `Guardian: ${safe.guardianName}`, MARGIN, curY, fontBold, 9); nl()
+    }
   }
 
   nl()
