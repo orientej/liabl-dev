@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase-admin'
+import { emitWebhookEvent } from '@/lib/webhooks'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const { data: doc, error: lookupError } = await client
     .from('signed_documents')
-    .select('id, pdf_path')
+    .select('id, pdf_path, operator_id, waiver_id, title_snapshot, signed_at')
     .eq('id', id)
     .maybeSingle()
 
@@ -60,6 +61,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const { error: updateError } = await client.from('signed_documents').update(patch).eq('id', id)
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+
+  // Supplemental document fully sealed — emit document.signed (best-effort).
+  if (documentHash && pdfPath && doc.operator_id) {
+    await emitWebhookEvent(client, {
+      operatorId: doc.operator_id,
+      eventType: 'document.signed',
+      data: {
+        signed_document_id: doc.id,
+        waiver_id: doc.waiver_id,
+        title: doc.title_snapshot,
+        signed_at: doc.signed_at,
+        document_hash: documentHash,
+      },
+    })
+  }
 
   return NextResponse.json({ written: true })
 }

@@ -25,6 +25,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase-admin'
+import { emitWebhookEvent } from '@/lib/webhooks'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const { data: waiver, error: lookupError } = await client
     .from('waivers')
-    .select('id, signed_at, pdf_path')
+    .select('id, signed_at, pdf_path, operator_id, activity_key, reservation_id, reservation_member_id, is_minor')
     .eq('id', waiverId)
     .maybeSingle()
 
@@ -69,6 +70,26 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const { error: updateError } = await client.from('waivers').update(patch).eq('id', waiverId)
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+
+  // A successful seal (hash + pdf both written) is the definitive "this
+  // waiver is signed and the sealed PDF exists" moment — the headline
+  // booking-engine signal. Emit here, server-side, so it never depends on
+  // the participant's browser. Best-effort: emit never blocks the write-back.
+  if (documentHash && pdfPath && waiver.operator_id) {
+    await emitWebhookEvent(client, {
+      operatorId: waiver.operator_id,
+      eventType: 'waiver.signed',
+      data: {
+        waiver_id: waiver.id,
+        activity_key: waiver.activity_key,
+        is_minor: waiver.is_minor,
+        reservation_id: waiver.reservation_id,
+        reservation_member_id: waiver.reservation_member_id,
+        signed_at: waiver.signed_at,
+        document_hash: documentHash,
+      },
+    })
+  }
 
   return NextResponse.json({ written: true })
 }
