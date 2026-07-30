@@ -7,6 +7,7 @@ import RosterTab        from '@/components/operator/RosterTab'
 import TemplateTab      from '@/components/operator/TemplateTab'
 import DocumentsTab     from '@/components/operator/DocumentsTab'
 import ReservationsTab  from '@/components/operator/ReservationsTab'
+import DevelopersTab    from '@/components/operator/DevelopersTab'
 import AnalyticsTab     from '@/components/operator/AnalyticsTab'
 import IncidentTab      from '@/components/operator/IncidentTab'
 import MobileTab        from '@/components/operator/MobileTab'
@@ -23,7 +24,7 @@ import {
   IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
 } from '@liabl/ui'
 
-type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'
+type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'|'developers'
 
 const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
 
@@ -175,6 +176,7 @@ export default function OperatorPage() {
     { key:'multilocation', label:'Multi-Location', Icon: IconLocation   },
     { key:'mobile',        label:'Mobile App',     Icon: IconMobile     },
     { key:'settings',      label:'Settings',       Icon: IconUserGroup  },
+    { key:'developers',    label:'Developers',     Icon: IconRocket     },
   ]
 
   if (suspended) {
@@ -267,6 +269,7 @@ export default function OperatorPage() {
         {tab === 'mobile'        && <MobileTab />}
         {tab === 'settings'      && <SettingsTab onNavigateToSessions={() => setTab('sessions')} />}
         {tab === 'sessions'      && <SessionsTab />}
+        {tab === 'developers'    && <DevelopersTab />}
       </div>
     </div>
   )
