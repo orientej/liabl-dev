@@ -64,6 +64,13 @@ export function reservationCheckInUrl(reservationId: string): string {
   return base ? `${base}/participant/reservation?r=${reservationId}` : ''
 }
 
+/** Group reservations — the group-leader link: one device, the leader
+ *  completes a waiver for each attendee in one sitting (Phase 3 group mode). */
+export function reservationGroupCheckInUrl(reservationId: string): string {
+  const base = participantBaseUrl()
+  return base ? `${base}/participant/reservation?r=${reservationId}&g=1` : ''
+}
+
 /** Group reservations — the organizer's self-service management link
  *  (possession of the self_service_token is the capability). Lives on the
  *  participant host. */

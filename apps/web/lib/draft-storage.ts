@@ -47,6 +47,48 @@ function draftKey(sessionId: string): string {
   return `liabl:draft:${sessionId}`
 }
 
+// ── Group check-in progress (Phase 3) ──────────────────────────────────
+// A group leader signing for their whole party on one device. Stored under
+// a SEPARATE key so the per-person draft (which is saved/cleared each
+// person) never clobbers the running group count. Longer TTL — a group
+// check-in legitimately spans a while.
+const GROUP_TTL_MS = 4 * 60 * 60 * 1000   // 4 hours
+
+export interface GroupProgress { signedCount: number; target: number | null }
+
+function groupKey(sessionId: string): string {
+  return `liabl:group:${sessionId}`
+}
+
+export function saveGroupProgress(sessionId: string, progress: GroupProgress): void {
+  try {
+    localStorage.setItem(groupKey(sessionId), JSON.stringify({ ...progress, savedAt: new Date().toISOString() }))
+  } catch { /* non-fatal, same as saveDraft */ }
+}
+
+/** Returns the group progress if present and within TTL, else null (and
+ *  clears an expired one). Only meaningful once at least one person has
+ *  been signed — the count is what makes a resume worth offering. */
+export function loadGroupProgress(sessionId: string): GroupProgress | null {
+  try {
+    const raw = localStorage.getItem(groupKey(sessionId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as GroupProgress & { savedAt?: string }
+    const age = parsed.savedAt ? Date.now() - new Date(parsed.savedAt).getTime() : 0
+    if (!(age >= 0) || age > GROUP_TTL_MS || !parsed.signedCount) {
+      clearGroupProgress(sessionId)
+      return null
+    }
+    return { signedCount: parsed.signedCount, target: parsed.target ?? null }
+  } catch {
+    return null
+  }
+}
+
+export function clearGroupProgress(sessionId: string): void {
+  try { localStorage.removeItem(groupKey(sessionId)) } catch { /* nothing to do */ }
+}
+
 export function saveDraft(sessionId: string, step: number, answers: Partial<ParticipantAnswers>): void {
   try {
     const draft: DraftState = { step, answers, savedAt: new Date().toISOString() }

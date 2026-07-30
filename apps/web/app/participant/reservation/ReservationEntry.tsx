@@ -32,6 +32,7 @@ export default function ReservationEntry() {
         dest.set('session', body.sessionId)
         dest.set('reservation', body.reservationId)
         if (m) dest.set('rm', m)   // personal link — bind this member on finish
+        if (params.get('g') === '1') dest.set('group', '1')   // group-leader mode
         router.replace(`/participant?${dest.toString()}`)
       } catch {
         setError('Something went wrong opening this check-in. Please try again.')

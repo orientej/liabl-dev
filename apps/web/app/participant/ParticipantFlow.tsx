@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ParticipantAnswers, WaiverClause, EngineData, generateClauses, fetchEngineData, buildActivityLabels, resolveOperatorSlugForSession, resolveTemplateVersionForSession } from '@/lib/document-engine'
-import { saveDraft, saveDocumentsPhase, loadDraft, clearDraft, type DraftState } from '@/lib/draft-storage'
+import { saveDraft, saveDocumentsPhase, loadDraft, clearDraft, saveGroupProgress, loadGroupProgress, clearGroupProgress, type DraftState, type GroupProgress } from '@/lib/draft-storage'
+import { GroupIntro, GroupInterstitial, GroupDone } from '@/components/participant/GroupCheckInScreens'
 import { sealWaiver } from '@/lib/seal'
 import { logEvent } from '@/lib/audit'
 import { Logo } from '@liabl/ui'
@@ -42,6 +43,9 @@ export default function ParticipantFlow() {
   // (if this is a personal link) is bound after the whole check-in finishes.
   const reservationId = searchParams.get('reservation')
   const memberToken   = searchParams.get('rm')
+  // Group check-in (Phase 3): a group-leader link (?group=1 on a reservation)
+  // — the leader completes a waiver for each attendee in one sitting.
+  const groupMode     = !!reservationId && searchParams.get('group') === '1'
 
   const [step,         setStep]         = useState(0)
   const [answers,      setAnswers]      = useState<Partial<ParticipantAnswers>>({})
@@ -69,6 +73,13 @@ export default function ParticipantFlow() {
   // Keys of documents handled (signed or skipped) this check-in — tracked
   // so mid-loop progress can be persisted for resume.
   const [completedDocKeys, setCompletedDocKeys] = useState<string[]>([])
+
+  // Group check-in (Phase 3). groupView drives the group bookend screens;
+  // when it's null during a group session the normal per-person steps show.
+  const [groupView,        setGroupView]        = useState<'intro' | 'interstitial' | 'done' | null>(null)
+  const [groupTarget,      setGroupTarget]      = useState<number | null>(null)
+  const [groupSignedCount, setGroupSignedCount] = useState(0)
+  const [groupResume,      setGroupResume]      = useState<GroupProgress | null>(null)
 
   // A single anonymous client for the document loop, created lazily — same
   // genuinely-anonymous client the signing path uses (see lib/supabase-anon).
@@ -103,7 +114,17 @@ export default function ParticipantFlow() {
     // network round-trip needed, it's just localStorage) — this is what
     // checkedDraft gates the initial render on, so there's no flash of
     // the empty entry screen before a resume prompt would show instead.
-    setDraftPrompt(loadDraft(sessionId))
+    if (groupMode) {
+      // A group session persists its running count separately from the
+      // per-person draft. If one is found, offer to resume the group;
+      // otherwise start at the group intro. The per-person draft prompt is
+      // deliberately not used in group mode.
+      const gp = loadGroupProgress(sessionId)
+      if (gp) setGroupResume(gp)
+      else setGroupView('intro')
+    } else {
+      setDraftPrompt(loadDraft(sessionId))
+    }
     setCheckedDraft(true)
 
     async function onFlowStart() {
@@ -560,7 +581,16 @@ export default function ParticipantFlow() {
     // The whole check-in is done — drop any documents-phase draft so it
     // can't be resumed after completion.
     clearDraft(sessionId)
-    setStep(7)
+    if (groupMode) {
+      // Group check-in: this person is done. Bump the running count, persist
+      // it, and show the interstitial rather than the single-person confirm.
+      const nextCount = groupSignedCount + 1
+      setGroupSignedCount(nextCount)
+      saveGroupProgress(sessionId, { signedCount: nextCount, target: groupTarget })
+      setGroupView('interstitial')
+    } else {
+      setStep(7)
+    }
     // Fire-and-forget: a validly-signed check-in must never be blocked or
     // delayed by the confirmation email.
     fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
@@ -624,8 +654,10 @@ export default function ParticipantFlow() {
     if (pendingSignature) attemptSave(pendingSignature)
   }
 
-  function restart() {
-    setStep(0)
+  // Resets all per-person state. `toStep` lets a group session skip the
+  // welcome and land on Identity for the next person.
+  function resetPerson(toStep: number) {
+    setStep(toStep)
     setAnswers({})
     setClauses([])
     setSaveState({ kind: 'idle' })
@@ -635,6 +667,50 @@ export default function ParticipantFlow() {
     setCompletedDocKeys([])
     resolvedSessionIdRef.current = null
     clearDraft(sessionId)
+  }
+
+  function restart() {
+    resetPerson(0)
+    setGroupView(null)
+    setGroupTarget(null)
+    setGroupSignedCount(0)
+    setGroupResume(null)
+    clearGroupProgress(sessionId)
+  }
+
+  // ── Group check-in (Phase 3) ───────────────────────────────────────────
+  function startGroup(target: number | null) {
+    setGroupTarget(target)
+    setGroupView(null)
+    resetPerson(1)   // skip the welcome screen, straight to Identity
+  }
+
+  function nextPerson() {
+    setGroupView(null)
+    resetPerson(1)
+  }
+
+  function finishGroup() {
+    clearGroupProgress(sessionId)
+    setGroupView('done')
+  }
+
+  function resumeGroup() {
+    if (!groupResume) return
+    setGroupSignedCount(groupResume.signedCount)
+    setGroupTarget(groupResume.target)
+    setGroupResume(null)
+    clearDraft(sessionId)   // drop any stale mid-person draft; the count is what matters
+    setGroupView('interstitial')
+  }
+
+  function discardGroup() {
+    clearGroupProgress(sessionId)
+    clearDraft(sessionId)
+    setGroupResume(null)
+    setGroupSignedCount(0)
+    setGroupTarget(null)
+    setGroupView('intro')
   }
 
   const saving = saveState.kind === 'saving'
@@ -659,6 +735,26 @@ export default function ParticipantFlow() {
               <h2 className="font-serif text-xl mb-2" style={{ letterSpacing:'-0.01em' }}>Can&apos;t load this check-in link</h2>
               <p className="text-sm text-gray-500">{engineError}</p>
             </div>
+          ) : groupResume ? (
+            // Group check-in resume — this device was signing in a group and
+            // reloaded. Offer to continue where the count left off.
+            <div className="card">
+              <h2 className="font-serif text-xl mb-2" style={{ letterSpacing:'-0.01em' }}>Resume group check-in?</h2>
+              <p className="text-sm text-gray-500 mb-5">
+                This device was checking in a group — <span className="font-medium text-ink">{groupResume.signedCount}</span> {groupResume.signedCount === 1 ? 'person has' : 'people have'} signed so far
+                {groupResume.target ? ` of ${groupResume.target}` : ''}. Continue with the next person, or start over.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={discardGroup} className="btn-secondary">Start over</button>
+                <button onClick={resumeGroup} className="btn-primary">Resume group</button>
+              </div>
+            </div>
+          ) : groupView === 'intro' ? (
+            <GroupIntro operatorName={engineData?.operatorName} onStart={startGroup} />
+          ) : groupView === 'interstitial' ? (
+            <GroupInterstitial count={groupSignedCount} target={groupTarget} onNext={nextPerson} onFinish={finishGroup} />
+          ) : groupView === 'done' ? (
+            <GroupDone count={groupSignedCount} onDone={restart} />
           ) : draftPrompt?.documentsPhase ? (
             // Multi-document resume — the waiver is already signed; this
             // offers to continue at the outstanding documents rather than

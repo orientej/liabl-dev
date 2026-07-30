@@ -16,7 +16,7 @@ import {
   type ReservationRecord, type ReservationMemberRecord,
 } from '@/lib/reservations'
 import {
-  reservationSelfServiceUrl, reservationCheckInUrl, reservationMemberCheckInUrl,
+  reservationSelfServiceUrl, reservationCheckInUrl, reservationMemberCheckInUrl, reservationGroupCheckInUrl,
 } from '@/lib/participant-url'
 
 function todayISO(): string {
@@ -317,6 +317,10 @@ export default function ReservationsTab() {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 text-xs text-gray-500">Shared check-in link (walk-ups)</div>
                   <CopyButton text={reservationCheckInUrl(selected.id)} label="Copy" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 text-xs text-gray-500">Group-leader link (one person signs for everyone on one device)</div>
+                  <CopyButton text={reservationGroupCheckInUrl(selected.id)} label="Copy" />
                 </div>
 
                 {/* Shared check-in QR — display or print at the venue for
