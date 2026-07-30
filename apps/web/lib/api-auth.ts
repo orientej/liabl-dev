@@ -24,17 +24,33 @@ export type ApiScope = (typeof API_SCOPES)[number]
 
 // v1 rate limit: fixed 120 requests / rolling 60s per key, counted from
 // the api_request_log (Postgres — no extra infra for v1).
-const RATE_LIMIT_PER_MIN = 120
+export const RATE_LIMIT_PER_MIN = 120
 
 export interface ApiContext {
   keyId: string
   operatorId: string
   scopes: string[]
   mode: 'live' | 'test'
+  // Requests remaining in the current 60s window (for X-RateLimit-Remaining).
+  // Set during authentication; handlers pass ctx to apiResponse to surface it.
+  remaining: number
 }
 
 export function apiError(status: number, code: string, message: string): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status })
+}
+
+/**
+ * Success responses go through here so every /api/v1 reply carries the
+ * standard developer-platform headers: the rate-limit budget (so clients
+ * can self-throttle) and which key mode served the request (live/test).
+ */
+export function apiResponse(ctx: ApiContext, body: unknown, init?: { status?: number }): NextResponse {
+  const res = NextResponse.json(body, init)
+  res.headers.set('X-RateLimit-Limit', String(RATE_LIMIT_PER_MIN))
+  res.headers.set('X-RateLimit-Remaining', String(Math.max(0, ctx.remaining)))
+  res.headers.set('X-Liabl-Mode', ctx.mode)
+  return res
 }
 
 function sha256hex(s: string): string {
@@ -106,7 +122,7 @@ export async function authenticateApiRequest(
   }
 
   const scopes: string[] = key.scopes ?? []
-  const ctx: ApiContext = { keyId: key.id, operatorId: key.operator_id, scopes, mode: key.mode }
+  const ctx: ApiContext = { keyId: key.id, operatorId: key.operator_id, scopes, mode: key.mode, remaining: RATE_LIMIT_PER_MIN }
 
   if (!scopes.includes(required)) {
     await logApiRequest(admin, ctx, request, 403)
@@ -120,10 +136,17 @@ export async function authenticateApiRequest(
     .select('id', { count: 'exact', head: true })
     .eq('api_key_id', key.id)
     .gte('created_at', since)
-  if ((count ?? 0) >= RATE_LIMIT_PER_MIN) {
+  const used = count ?? 0
+  if (used >= RATE_LIMIT_PER_MIN) {
     await logApiRequest(admin, ctx, request, 429)
-    return { response: apiError(429, 'rate_limited', `Rate limit exceeded (${RATE_LIMIT_PER_MIN} requests per minute). Please retry shortly.`) }
+    const res = apiError(429, 'rate_limited', `Rate limit exceeded (${RATE_LIMIT_PER_MIN} requests per minute). Please retry shortly.`)
+    res.headers.set('Retry-After', '60')
+    res.headers.set('X-RateLimit-Limit', String(RATE_LIMIT_PER_MIN))
+    res.headers.set('X-RateLimit-Remaining', '0')
+    return { response: res }
   }
+  // This request will consume one slot; report what's left after it.
+  ctx.remaining = Math.max(0, RATE_LIMIT_PER_MIN - used - 1)
 
   // Touch last_used_at (fire-and-forget).
   admin.from('api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', key.id).then(() => {}, () => {})

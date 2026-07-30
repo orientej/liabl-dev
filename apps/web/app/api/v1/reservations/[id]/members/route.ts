@@ -6,7 +6,7 @@
 //   -> { members: [{ id, full_name, email, check_in_url }] }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateApiRequest, logApiRequest, apiError } from '@/lib/api-auth'
+import { authenticateApiRequest, logApiRequest, apiError, apiResponse } from '@/lib/api-auth'
 import { sendReservationInviteEmail } from '@/lib/email'
 import { reservationMemberCheckInUrl } from '@/lib/participant-url'
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     await logApiRequest(admin, ctx, request, 201)
-    return NextResponse.json({ members }, { status: 201 })
+    return apiResponse(ctx, { members }, { status: 201 })
   } catch (e) {
     await logApiRequest(admin, ctx, request, 500)
     return apiError(500, 'server_error', e instanceof Error ? e.message : 'Failed to add members.')

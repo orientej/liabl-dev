@@ -22,6 +22,14 @@ export async function POST(request: NextRequest) {
   const mode: 'live' | 'test' = body.mode === 'test' ? 'test' : 'live'
   const requestedScopes: string[] = Array.isArray(body.scopes) ? body.scopes : []
 
+  // Optional expiry (key rotation): a positive day count sets expires_at;
+  // omitted / 0 means the key never expires. The auth layer already rejects
+  // an expired key, so this needs no other enforcement.
+  const expiresInDays = Number(body.expiresInDays)
+  const expiresAt = Number.isFinite(expiresInDays) && expiresInDays > 0
+    ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString()
+    : null
+
   if (!name) return NextResponse.json({ error: 'A name is required' }, { status: 400 })
 
   // Only allow known scopes.
@@ -53,6 +61,7 @@ export async function POST(request: NextRequest) {
       key_hash:    hash,
       scopes,
       mode,
+      expires_at:  expiresAt,
       created_by:  user.id,
     })
     .select('id')
@@ -61,5 +70,5 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // The plaintext key is returned here and NEVER again.
-  return NextResponse.json({ id: inserted!.id, key, keyPrefix: prefix, last4, scopes, mode })
+  return NextResponse.json({ id: inserted!.id, key, keyPrefix: prefix, last4, scopes, mode, expiresAt })
 }

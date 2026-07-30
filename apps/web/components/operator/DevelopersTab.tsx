@@ -12,6 +12,15 @@ function fmtDate(s: string | null): string {
   return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// Key rotation: a key can be created with a lifetime, after which the auth
+// layer rejects it. "Never" (0) is the default.
+const EXPIRY_OPTIONS: { days: number; label: string }[] = [
+  { days: 0,   label: 'Never' },
+  { days: 30,  label: '30 days' },
+  { days: 90,  label: '90 days' },
+  { days: 365, label: '1 year' },
+]
+
 export default function DevelopersTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [keys, setKeys] = useState<ApiKeyRecord[]>([])
@@ -24,6 +33,7 @@ export default function DevelopersTab() {
   const [name, setName] = useState('')
   const [mode, setMode] = useState<'live' | 'test'>('live')
   const [scopes, setScopes] = useState<string[]>(['reservations:read', 'reservations:write'])
+  const [expiresInDays, setExpiresInDays] = useState(0)
 
   // The one-time reveal of a newly created key
   const [newKey, setNewKey] = useState<string | null>(null)
@@ -47,13 +57,12 @@ export default function DevelopersTab() {
     setScopes(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
   }
 
-  async function handleCreate() {
-    if (!name.trim() || scopes.length === 0) return
+  async function createKey(payload: { name: string; scopes: string[]; mode: 'live' | 'test'; expiresInDays: number }) {
     setBusy(true); setError(null)
     try {
       const res = await fetch('/api/keys', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), scopes, mode }),
+        body: JSON.stringify(payload),
       })
       const body = await res.json()
       if (!res.ok) { setError(body.error || 'Failed to create key'); return }
@@ -63,6 +72,19 @@ export default function DevelopersTab() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create key')
     } finally { setBusy(false) }
+  }
+
+  async function handleCreate() {
+    if (!name.trim() || scopes.length === 0) return
+    await createKey({ name: name.trim(), scopes, mode, expiresInDays })
+  }
+
+  // Rotation: mint a replacement with the same scopes/mode (shown once). The
+  // old key stays active so integrators can swap it in, then revoke it here
+  // — no accidental outage from an instant cutover.
+  async function handleRotate(k: ApiKeyRecord) {
+    const base = k.name.replace(/ \(rotated.*\)$/, '')
+    await createKey({ name: `${base} (rotated ${fmtDate(new Date().toISOString())})`, scopes: k.scopes, mode: k.mode, expiresInDays: 0 })
   }
 
   async function handleRevoke(id: string) {
@@ -81,7 +103,8 @@ export default function DevelopersTab() {
           <h2 className="font-serif text-2xl mb-1" style={{ letterSpacing: '-0.01em' }}>Developers</h2>
           <p className="text-sm text-gray-500">
             API keys for booking engines and integrations. Base URL: <span className="font-mono text-ink">https://api.liabl.ai/api/v1</span>.
-            Send a key as <span className="font-mono text-ink">Authorization: Bearer &lt;key&gt;</span>.
+            Send a key as <span className="font-mono text-ink">Authorization: Bearer &lt;key&gt;</span>.{' '}
+            <a href="https://api.liabl.ai/developers" target="_blank" rel="noopener noreferrer" className="text-brand underline">Read the API docs →</a>
           </p>
         </div>
         <button onClick={() => setCreating(v => !v)} className="btn-primary text-sm shrink-0">
@@ -135,6 +158,17 @@ export default function DevelopersTab() {
               ))}
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Expires</label>
+            <div className="flex gap-2">
+              {EXPIRY_OPTIONS.map(o => (
+                <button key={o.days} onClick={() => setExpiresInDays(o.days)}
+                  className={`text-sm px-3 py-1.5 rounded-lg border ${expiresInDays === o.days ? 'border-brand bg-brand/5 text-brand' : 'border-black/10 text-gray-500'}`}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button onClick={handleCreate} disabled={busy || !name.trim() || scopes.length === 0} className="btn-primary text-sm">Create key</button>
         </div>
       )}
@@ -152,10 +186,14 @@ export default function DevelopersTab() {
               <div className="text-xs text-gray-400 font-mono mt-0.5">{k.keyPrefix}…{k.last4}</div>
               <div className="text-xs text-gray-400 mt-0.5">
                 {k.scopes.join(', ') || 'no scopes'} · created {fmtDate(k.createdAt)} · last used {fmtDate(k.lastUsedAt)}
+                {k.expiresAt && <> · {new Date(k.expiresAt) < new Date() ? <span className="text-red-500">expired {fmtDate(k.expiresAt)}</span> : <>expires {fmtDate(k.expiresAt)}</>}</>}
               </div>
             </div>
             {!k.revokedAt && (
-              <button onClick={() => handleRevoke(k.id)} disabled={busy} className="text-xs text-gray-400 hover:text-red-500 underline shrink-0">Revoke</button>
+              <div className="flex items-center gap-3 shrink-0">
+                <button onClick={() => handleRotate(k)} disabled={busy} className="text-xs text-gray-400 hover:text-ink underline">Rotate</button>
+                <button onClick={() => handleRevoke(k.id)} disabled={busy} className="text-xs text-gray-400 hover:text-red-500 underline">Revoke</button>
+              </div>
             )}
           </div>
         ))}

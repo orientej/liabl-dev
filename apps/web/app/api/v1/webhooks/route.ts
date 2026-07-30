@@ -10,7 +10,7 @@
 //   DELETE /api/v1/webhooks?id=<id>    -> { deleted: true }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateApiRequest, logApiRequest, apiError } from '@/lib/api-auth'
+import { authenticateApiRequest, logApiRequest, apiError, apiResponse } from '@/lib/api-auth'
 import { generateWebhookSecret, WEBHOOK_EVENTS } from '@/lib/webhooks'
 
 export const runtime = 'nodejs'
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
     if (error) throw new Error(error.message)
     await logApiRequest(admin, ctx, request, 200)
-    return NextResponse.json({
+    return apiResponse(ctx, {
       endpoints: (data ?? []).map(e => ({
         id: e.id, url: e.url, events: e.event_types ?? [], active: e.active,
         description: e.description, last_delivery_at: e.last_delivery_at, created_at: e.created_at,
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     await logApiRequest(admin, ctx, request, 201)
     // secret returned once, never again
-    return NextResponse.json({ id: inserted!.id, url: parsed.toString(), events, secret }, { status: 201 })
+    return apiResponse(ctx, { id: inserted!.id, url: parsed.toString(), events, secret }, { status: 201 })
   } catch (e) {
     await logApiRequest(admin, ctx, request, 500)
     return apiError(500, 'server_error', e instanceof Error ? e.message : 'Failed to create webhook.')
@@ -95,7 +95,7 @@ export async function DELETE(request: NextRequest) {
     const { error } = await admin.from('webhook_endpoints').delete().eq('id', id).eq('operator_id', ctx.operatorId)
     if (error) throw new Error(error.message)
     await logApiRequest(admin, ctx, request, 200)
-    return NextResponse.json({ deleted: true })
+    return apiResponse(ctx, { deleted: true })
   } catch (e) {
     await logApiRequest(admin, ctx, request, 500)
     return apiError(500, 'server_error', e instanceof Error ? e.message : 'Failed to delete webhook.')

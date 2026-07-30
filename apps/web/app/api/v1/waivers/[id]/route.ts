@@ -3,7 +3,7 @@
 // short-lived signed PDF link when sealed. Operator-scoped by the API key.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateApiRequest, logApiRequest, apiError } from '@/lib/api-auth'
+import { authenticateApiRequest, logApiRequest, apiError, apiResponse } from '@/lib/api-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
 
     await logApiRequest(admin, ctx, request, 200)
-    return NextResponse.json({
+    return apiResponse(ctx, {
       id: waiver.id,
       signed: !!waiver.signed_at,
       signed_at: waiver.signed_at,

@@ -5,7 +5,7 @@
 // operator returns 404, never its data.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateApiRequest, logApiRequest, apiError } from '@/lib/api-auth'
+import { authenticateApiRequest, logApiRequest, apiError, apiResponse } from '@/lib/api-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const expected = Math.max(reservation.party_size ?? 0, memberList.length)
 
     await logApiRequest(admin, ctx, request, 200)
-    return NextResponse.json({
+    return apiResponse(ctx, {
       id: reservation.id,
       status: reservation.status,
       activity_key: reservation.activity_key,

@@ -13,7 +13,7 @@
 // Every query is scoped to the operator resolved from the API KEY.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { authenticateApiRequest, logApiRequest, apiError } from '@/lib/api-auth'
+import { authenticateApiRequest, logApiRequest, apiError, apiResponse } from '@/lib/api-auth'
 import { sendReservationInviteEmail } from '@/lib/email'
 import {
   reservationSelfServiceUrl, reservationCheckInUrl, reservationGroupCheckInUrl, reservationMemberCheckInUrl,
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     }
 
     await logApiRequest(admin, ctx, request, 201)
-    return NextResponse.json({
+    return apiResponse(ctx, {
       id: reservation!.id,
       status: reservation!.status,
       activity_key: activityKey,
@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
     const nextCursor = items.length === limit ? items[items.length - 1].created_at : null
 
     await logApiRequest(admin, ctx, request, 200)
-    return NextResponse.json({ items, next_cursor: nextCursor })
+    return apiResponse(ctx, { items, next_cursor: nextCursor })
   } catch (e) {
     await logApiRequest(admin, ctx, request, 500)
     return apiError(500, 'server_error', e instanceof Error ? e.message : 'Failed to list reservations.')
