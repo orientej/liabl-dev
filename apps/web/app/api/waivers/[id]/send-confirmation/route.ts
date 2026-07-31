@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServerClient } from '@/lib/supabase-server'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { sendWaiverConfirmationEmail } from '@/lib/email'
+import { fetchBranding } from '@/lib/branding'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -96,6 +97,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     .map(d => d.title_snapshot as string)
     .filter((t): t is string => !!t)
 
+  const branding = await fetchBranding(supabase, waiver.operator_id)
+
   try {
     await sendWaiverConfirmationEmail({
       to:              participant.email,
@@ -104,6 +107,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       activityLabel:   activity?.display_name ?? waiver.activity_key,
       signedAt:        waiver.signed_at,
       documentTitles,
+      logoUrl:         branding.logoUrl,
+      primaryColor:    branding.primaryColor,
     })
   } catch (sendError) {
     // Email delivery is best-effort from the participant's perspective —

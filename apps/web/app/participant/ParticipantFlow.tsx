@@ -20,6 +20,8 @@ import DocumentSigningFlow, { type DocumentSigningContext } from '@/components/p
 import { resolveApplicableDocuments, type ResolvedDocument } from '@/lib/signed-documents'
 import { createClient as createAnonSupabase } from '@/lib/supabase-anon'
 import { PageNav } from '@liabl/ui'
+import BrandStyle from '@/components/BrandStyle'
+import { fetchBranding, EMPTY_BRANDING, type Branding } from '@/lib/branding'
 
 const ADULT_STEPS = ['Identity','Activity','Health','Review','Sign']
 const MINOR_STEPS = ['Identity','Activity','Health','Guardian','Review','Sign']
@@ -55,6 +57,10 @@ export default function ParticipantFlow() {
   const [engineData,   setEngineData]   = useState<EngineData | null>(null)
   const [engineError,  setEngineError]  = useState<string | null>(null)
   const [sessionInfo,  setSessionInfo]  = useState<{ time: string | null; ref: string | null } | null>(null)
+  // Private labeling — the operator's brand, resolved once the operator is
+  // known. Defaults to the Liabl look, so the flow renders unbranded until
+  // (and if) a branding row is found.
+  const [branding,     setBranding]     = useState<Branding>(EMPTY_BRANDING)
 
   // v25 M6 — session recovery. checkedDraft gates the very first render
   // so we never flash the empty entry screen before knowing whether a
@@ -88,6 +94,17 @@ export default function ParticipantFlow() {
     if (!anonSupabaseRef.current) anonSupabaseRef.current = createAnonSupabase()
     return anonSupabaseRef.current
   }
+
+  // Resolve branding once we know the operator. Failure degrades silently to
+  // the Liabl default (fetchBranding never throws).
+  useEffect(() => {
+    const opId = engineData?.operatorId
+    if (!opId) return
+    let cancelled = false
+    fetchBranding(getAnonSupabase(), opId).then(b => { if (!cancelled) setBranding(b) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineData?.operatorId])
 
   const labels = engineData ? buildActivityLabels(engineData) : {}
 
@@ -434,6 +451,10 @@ export default function ParticipantFlow() {
           guardianSignatureData: full.guardianSig ?? null,
           clauses,
           signatureData: sigData,
+          // Private labeling — presentation-only header (not hashed).
+          logoUrl:       branding.logoUrl,
+          primaryColor:  branding.primaryColor,
+          operatorName:  engineData?.operatorName ?? null,
         })
 
         // v25 fix — confirmed the direct anon UPDATE to waivers was the
@@ -721,7 +742,13 @@ export default function ParticipantFlow() {
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
-      <PageNav badge="Participant" operatorName={engineData?.operatorName} operatorAccent="#4B2ACF" />
+      <BrandStyle branding={branding} />
+      <PageNav
+        badge="Participant"
+        operatorName={engineData?.operatorName}
+        operatorAccent={branding.primaryColor ?? '#4B2ACF'}
+        logoUrl={branding.logoUrl ?? undefined}
+      />
       <div className="flex-1 flex flex-col items-center px-4 py-8">
         <div className="w-full max-w-lg">
           {!checkedDraft ? null : engineError ? (
@@ -921,6 +948,9 @@ export default function ParticipantFlow() {
           )}
         </div>
       </div>
+      {!branding.hidePoweredBy && (
+        <footer className="py-4 text-center text-[11px] text-gray-400">Powered by Liabl</footer>
+      )}
     </div>
   )
 }

@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { sendReservationInviteEmail } from '@/lib/email'
 import { reservationMemberCheckInUrl } from '@/lib/participant-url'
+import { fetchBranding } from '@/lib/branding'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -87,6 +88,7 @@ export async function GET(request: NextRequest) {
     checkInUrl: reservationMemberCheckInUrl(m.member_token),
   }))
   const expectedCount = Math.max(reservation.party_size ?? 0, memberList.length)
+  const branding = await fetchBranding(admin, reservation.operator_id)
 
   return NextResponse.json({
     reservation: {
@@ -101,6 +103,7 @@ export async function GET(request: NextRequest) {
     members: memberList,
     signedCount: signedCount ?? 0,
     expectedCount,
+    branding,
   })
 }
 

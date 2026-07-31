@@ -7,6 +7,7 @@ interface Props {
   homeHref?: string               // override home destination
   operatorName?: string           // shown beneath wordmark when present
   operatorAccent?: string         // logo mark color override
+  logoUrl?: string                // private labeling: operator logo replaces the LIABL wordmark
   showHomeButton?: boolean        // default true — set false on the homepage itself
   onSignOut?: () => void          // shown as a "Sign Out" button when present
 }
@@ -16,13 +17,14 @@ export default function PageNav({
   homeHref = '/',
   operatorName,
   operatorAccent,
+  logoUrl,
   showHomeButton = true,
   onSignOut,
 }: Props) {
   return (
     <nav className="bg-white border-b border-black/10 px-5 py-3 flex items-center justify-between sticky top-0 z-40">
       <Link href={homeHref} aria-label="Go to home" className="hover:opacity-90 transition-opacity">
-        <Logo size="md" operatorName={operatorName} operatorAccent={operatorAccent}/>
+        <Logo size="md" operatorName={operatorName} operatorAccent={operatorAccent} logoUrl={logoUrl}/>
       </Link>
       <div className="flex items-center gap-3">
         {badge && (

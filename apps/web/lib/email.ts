@@ -9,6 +9,7 @@
 // 'use client' component.
 
 import { Resend } from 'resend'
+import { isValidHex } from '@/lib/branding'
 
 let client: Resend | null = null
 function getClient(): Resend {
@@ -20,6 +21,21 @@ function getClient(): Resend {
   return client
 }
 
+// Private labeling — shared email branding. The operator's primary color (or
+// the Liabl default) and, when set, a logo header. Used by the participant-
+// facing emails so they match the operator's brand.
+const LIABL_BRAND = '#4B2ACF'
+function brandColor(primaryColor?: string | null): string {
+  return isValidHex(primaryColor ?? undefined) ? (primaryColor as string) : LIABL_BRAND
+}
+function brandHeaderHtml(operatorName: string, logoUrl?: string | null, primaryColor?: string | null): string {
+  const color = brandColor(primaryColor)
+  const inner = logoUrl
+    ? `<img src="${logoUrl}" alt="${escapeHtml(operatorName)}" style="max-height:40px;max-width:190px;object-fit:contain;" />`
+    : `<span style="font-weight:700;font-size:18px;color:${color};">${escapeHtml(operatorName)}</span>`
+  return `<div style="border-top:4px solid ${color};padding-top:16px;margin-bottom:16px;">${inner}</div>`
+}
+
 export interface WaiverConfirmationInput {
   to: string
   participantName: string
@@ -29,6 +45,9 @@ export interface WaiverConfirmationInput {
   // Multi-document check-in: titles of any supplemental documents signed
   // alongside the waiver in this check-in. Empty/undefined = waiver only.
   documentTitles?: string[]
+  // Private labeling (optional): operator logo + primary color.
+  logoUrl?: string | null
+  primaryColor?: string | null
 }
 
 const FROM_ADDRESS = process.env.RESEND_FROM_ADDRESS || 'LIABL <waivers@liabl.app>'
@@ -58,6 +77,7 @@ export async function sendWaiverConfirmationEmail(input: WaiverConfirmationInput
     subject: `Your ${input.operatorName} waiver — signed and on file`,
     html: `
       <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        ${brandHeaderHtml(input.operatorName, input.logoUrl, input.primaryColor)}
         <h2 style="font-size: 18px;">You're all set, ${escapeHtml(firstName(input.participantName))}.</h2>
         <p style="font-size: 14px; color: #444; line-height: 1.5;">
           Your waiver for <strong>${escapeHtml(input.activityLabel)}</strong> with
@@ -117,6 +137,9 @@ export interface ReservationInviteInput {
   activityLabel: string
   reservationDate: string | null   // ISO date (yyyy-mm-dd) or null
   checkInUrl: string        // the attendee's personal check-in link
+  // Private labeling (optional): operator logo + primary color.
+  logoUrl?: string | null
+  primaryColor?: string | null
 }
 
 /** Group reservations — invites one attendee to complete their waiver
@@ -133,6 +156,7 @@ export async function sendReservationInviteEmail(input: ReservationInviteInput):
     subject: `Complete your waiver for ${input.activityLabel} with ${input.operatorName}`,
     html: `
       <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        ${brandHeaderHtml(input.operatorName, input.logoUrl, input.primaryColor)}
         <h2 style="font-size: 18px;">You're invited to complete your waiver</h2>
         <p style="font-size: 14px; color: #444; line-height: 1.5;">
           ${escapeHtml(input.organizerName)} has added you to a group booking for
@@ -140,7 +164,7 @@ export async function sendReservationInviteEmail(input: ReservationInviteInput):
           Please complete your waiver ahead of time so you're all set on the day.
         </p>
         <p style="margin: 24px 0;">
-          <a href="${input.checkInUrl}" style="background: #4B2ACF; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">
+          <a href="${input.checkInUrl}" style="background: ${brandColor(input.primaryColor)}; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600;">
             Complete my waiver
           </a>
         </p>

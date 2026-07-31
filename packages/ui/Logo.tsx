@@ -9,6 +9,7 @@ interface Props {
   operatorName?: string
   operatorAccent?: string
   markOnly?: boolean
+  logoUrl?: string                // private labeling: operator logo replaces the LIABL wordmark
 }
 
 const sizes = {
@@ -17,8 +18,17 @@ const sizes = {
   lg: { mark:52, word:40, tag:12, gap:14 },
 }
 
-export default function Logo({ size='md', dark=false, operatorName, operatorAccent, markOnly=false }: Props) {
+export default function Logo({ size='md', dark=false, operatorName, operatorAccent, markOnly=false, logoUrl }: Props) {
   const s = sizes[size]
+
+  // Private labeling: when the operator has a logo, show it in place of the
+  // LIABL mark/wordmark. Height tracks the size scale; width is capped so a
+  // wide logo can't blow out the nav.
+  if (logoUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={logoUrl} alt={operatorName || 'Logo'} style={{ height: s.mark, maxWidth: size === 'lg' ? 280 : 200, objectFit: 'contain', display: 'block' }} />
+  }
+
   const markBg     = operatorAccent ?? '#4B2ACF'
   const accentColor = '#EA580C'
   const wordColor   = dark ? '#FFFFFF' : '#0D0E12'

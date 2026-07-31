@@ -6,6 +6,8 @@
 // queries Supabase directly. Lives on the participant host.
 import { useState, useEffect, useCallback } from 'react'
 import { Logo } from '@liabl/ui'
+import BrandStyle from '@/components/BrandStyle'
+import { EMPTY_BRANDING, type Branding } from '@/lib/branding'
 
 interface MemberView {
   id: string
@@ -27,6 +29,7 @@ interface ManageData {
   members: MemberView[]
   signedCount: number
   expectedCount: number
+  branding?: Branding
 }
 
 function Copy({ text }: { text: string }) {
@@ -77,10 +80,13 @@ export default function OrganizerSelfServicePage({ params }: { params: { token: 
     } finally { setBusy(false) }
   }
 
+  const branding = data?.branding ?? EMPTY_BRANDING
+
   return (
     <div className="min-h-screen bg-surface flex flex-col">
+      <BrandStyle branding={branding} />
       <div className="h-14 bg-white border-b border-black/10 flex items-center px-5">
-        <Logo />
+        <Logo logoUrl={branding.logoUrl ?? undefined} operatorAccent={branding.primaryColor ?? undefined} />
       </div>
       <div className="flex-1 flex flex-col items-center px-4 py-8">
         <div className="w-full max-w-lg">
@@ -171,6 +177,9 @@ export default function OrganizerSelfServicePage({ params }: { params: { token: 
           ) : null}
         </div>
       </div>
+      {!branding.hidePoweredBy && (
+        <footer className="py-4 text-center text-[11px] text-gray-400">Powered by Liabl</footer>
+      )}
     </div>
   )
 }

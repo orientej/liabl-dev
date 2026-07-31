@@ -46,6 +46,12 @@ export interface SealInput {
   clauses: WaiverClause[]
   signatureData: string     // data-URL (image/png or image/jpeg)
   guardianSignatureData?: string | null  // guardian's drawn signature (data-URL), minors only
+  // Private labeling (optional, presentation only — NOT part of the hashed
+  // canonical document): operator logo + primary color + name for the PDF
+  // header. Omitted/invalid = the Liabl header exactly as before.
+  logoUrl?: string | null
+  primaryColor?: string | null
+  operatorName?: string | null
 }
 
 export interface SealResult {
@@ -178,12 +184,39 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   return lines
 }
 
+// Private labeling — a '#RRGGBB' as a pdf-lib rgb (0..1), or null.
+function pdfHexColor(hex?: string | null): ReturnType<typeof rgb> | null {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex.trim())) return null
+  const n = parseInt(hex.trim().slice(1), 16)
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255)
+}
+
+// Private labeling — fetch + embed an operator logo (PNG or JPEG only; SVG or
+// any fetch/parse failure returns null and the header falls back to text).
+// Best-effort: a logo problem must never break sealing a waiver.
+async function embedLogo(doc: PDFDocument, url?: string | null): Promise<{ img: Awaited<ReturnType<PDFDocument['embedPng']>>; w: number; h: number } | null> {
+  if (!url) return null
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const buf = new Uint8Array(await res.arrayBuffer())
+    let img
+    if (buf[0] === 0x89 && buf[1] === 0x50) img = await doc.embedPng(buf)
+    else if (buf[0] === 0xff && buf[1] === 0xd8) img = await doc.embedJpg(buf)
+    else return null
+    return { img, w: img.width, h: img.height }
+  } catch {
+    return null
+  }
+}
+
 export async function buildPdf(input: SealInput, documentHash: string): Promise<Uint8Array> {
   const doc          = await PDFDocument.create()
   const fontRegular  = await doc.embedFont(StandardFonts.Helvetica)
   const fontBold     = await doc.embedFont(StandardFonts.HelveticaBold)
   const fontMono     = await doc.embedFont(StandardFonts.Courier)
   const brandColor   = rgb(0.294, 0.165, 0.812)  // #4B2ACF
+  const headerColor  = pdfHexColor(input.primaryColor) ?? brandColor
 
   // Sanitize every piece of user/operator-supplied text once, up front —
   // participant-entered fields (name, email, guardian) and operator-
@@ -233,12 +266,25 @@ export async function buildPdf(input: SealInput, documentHash: string): Promise<
 
   function nl(lines = 1) { curY -= LINE_HEIGHT * lines }
 
-  // ── Header ──
-  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 70, width: PAGE_WIDTH, height: 70, color: brandColor })
-  await drawText(page, 'LIABL', MARGIN, PAGE_HEIGHT - 30, fontBold, 18, rgb(1, 1, 1))
-  await drawText(page, 'Electronic Waiver', MARGIN + 52, PAGE_HEIGHT - 30, fontRegular, 14, rgb(0.85, 0.80, 1))
-  await drawText(page, `Signed: ${new Date(input.signedAt).toLocaleString()}`, MARGIN, PAGE_HEIGHT - 52, fontRegular, 8, rgb(0.85, 0.85, 1))
-  await drawText(page, `Doc: ${input.waiverId.slice(0, 8)}`, PAGE_WIDTH - MARGIN - 90, PAGE_HEIGHT - 52, fontMono, 8, rgb(0.85, 0.85, 1))
+  // ── Header ── (private labeling: operator color + logo/name when set)
+  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 70, width: PAGE_WIDTH, height: 70, color: headerColor })
+  const logo = await embedLogo(doc, input.logoUrl)
+  let titleX = MARGIN
+  if (logo) {
+    // Scale the logo to a 26pt header height, capped at 150pt wide.
+    const targetH = 26
+    let h = targetH, w = (logo.w / logo.h) * targetH
+    if (w > 150) { w = 150; h = (logo.h / logo.w) * 150 }
+    page.drawImage(logo.img, { x: MARGIN, y: PAGE_HEIGHT - 22 - h, width: w, height: h })
+    titleX = MARGIN + w + 12
+  } else {
+    const headerText = (input.operatorName && sanitizeForPdf(input.operatorName, fontBold)) || 'LIABL'
+    await drawText(page, headerText, MARGIN, PAGE_HEIGHT - 30, fontBold, 18, rgb(1, 1, 1))
+    titleX = MARGIN + Math.min(fontBold.widthOfTextAtSize(headerText, 18) + 12, 220)
+  }
+  await drawText(page, 'Electronic Waiver', titleX, PAGE_HEIGHT - 30, fontRegular, 14, rgb(0.92, 0.90, 1))
+  await drawText(page, `Signed: ${new Date(input.signedAt).toLocaleString()}`, MARGIN, PAGE_HEIGHT - 52, fontRegular, 8, rgb(0.92, 0.92, 1))
+  await drawText(page, `Doc: ${input.waiverId.slice(0, 8)}`, PAGE_WIDTH - MARGIN - 90, PAGE_HEIGHT - 52, fontMono, 8, rgb(0.92, 0.92, 1))
   curY = PAGE_HEIGHT - 90
 
   // ── Participant block ──
