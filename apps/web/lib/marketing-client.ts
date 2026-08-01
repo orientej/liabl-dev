@@ -53,3 +53,31 @@ export function contactsToCsv(contacts: MarketingContact[]): string {
     ].map(v => esc(String(v))).join(','))
   return [header.join(','), ...rows].join('\n')
 }
+
+export interface CampaignRecord {
+  id:            string
+  name:          string
+  channel:       'email' | 'sms'
+  subject:       string | null
+  status:        string
+  audienceCount: number
+  sentCount:     number
+  failedCount:   number
+  sentAt:        string | null
+  createdAt:     string
+}
+
+export async function listCampaigns(operatorId: string): Promise<CampaignRecord[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('campaigns')
+    .select('id, name, channel, subject, status, audience_count, sent_count, failed_count, sent_at, created_at')
+    .eq('operator_id', operatorId)
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(`list campaigns: ${error.message}`)
+  return (data ?? []).map(c => ({
+    id: c.id, name: c.name, channel: c.channel, subject: c.subject ?? null, status: c.status,
+    audienceCount: c.audience_count, sentCount: c.sent_count, failedCount: c.failed_count,
+    sentAt: c.sent_at ?? null, createdAt: c.created_at,
+  }))
+}

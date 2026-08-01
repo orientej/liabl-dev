@@ -178,6 +178,46 @@ export async function sendReservationInviteEmail(input: ReservationInviteInput):
   if (error) throw new Error(`resend: ${error.message}`)
 }
 
+export interface MarketingEmailInput {
+  to: string
+  subject: string
+  body: string              // plain text authored by the operator
+  operatorName: string
+  unsubscribeUrl: string
+  logoUrl?: string | null
+  primaryColor?: string | null
+}
+
+/** Marketing automation (M2) — a broadcast/automation email. Includes the
+ *  operator's brand, a required unsubscribe link (CAN-SPAM) + a one-click
+ *  List-Unsubscribe header. The body is operator-authored plain text, escaped
+ *  and newline-preserved so it can't inject markup. Returns the Resend id. */
+export async function sendMarketingEmail(input: MarketingEmailInput): Promise<{ id: string }> {
+  const bodyHtml = escapeHtml(input.body).replace(/\n/g, '<br>')
+  const { data, error } = await getClient().emails.send({
+    from: FROM_ADDRESS,
+    to: input.to,
+    subject: input.subject,
+    html: `
+      <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+        ${brandHeaderHtml(input.operatorName, input.logoUrl, input.primaryColor)}
+        <div style="font-size: 14px; color: #333; line-height: 1.6;">${bodyHtml}</div>
+        <hr style="border:none; border-top:1px solid #eee; margin:24px 0;" />
+        <p style="font-size: 11px; color: #999; line-height: 1.5;">
+          You're receiving this because you opted in to marketing from ${escapeHtml(input.operatorName)}.
+          <a href="${input.unsubscribeUrl}" style="color:#999;">Unsubscribe</a>.
+        </p>
+      </div>
+    `,
+    headers: {
+      'List-Unsubscribe': `<${input.unsubscribeUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
+  })
+  if (error) throw new Error(`resend: ${error.message}`)
+  return { id: (data as { id?: string } | null)?.id ?? '' }
+}
+
 function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] || 'there'
 }

@@ -1,26 +1,47 @@
 'use client'
-// Marketing automation — M1 console. Turn marketing on, then see the audience
-// you're capturing consent for. Built-in stays basic (consent + contacts now;
-// broadcasts + automations next); volume/complex work goes to a 3rd-party
-// platform via the contacts API + the marketing.contact webhook.
+// Marketing automation — M2 console. Turn marketing on, see the audience you're
+// capturing consent for, and broadcast to it (email via Resend, SMS via Twilio).
+// Built-in stays basic (consent + contacts + broadcasts; automations next);
+// volume/complex work goes to a 3rd-party platform via the contacts API + the
+// marketing.contact webhook.
 import { useState, useEffect, useCallback } from 'react'
 import { getCurrentOperatorMember } from '@/lib/auth'
 import { fetchEngineData } from '@/lib/document-engine'
-import { listMarketingContacts, setMarketingEnabled, contactsToCsv, type MarketingContact } from '@/lib/marketing-client'
+import {
+  listMarketingContacts, setMarketingEnabled, contactsToCsv, listCampaigns,
+  type MarketingContact, type CampaignRecord,
+} from '@/lib/marketing-client'
 
 function fmtDate(s: string | null): string {
   if (!s) return '—'
   return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const STATUS_STYLE: Record<string, string> = {
+  sent:    'border-green-200 text-green-600',
+  sending: 'border-amber-200 text-amber-600',
+  queued:  'border-blue-200 text-blue-600',
+  failed:  'border-red-200 text-red-600',
+  draft:   'border-black/10 text-gray-400',
+}
+
 export default function MarketingTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [contacts, setContacts] = useState<MarketingContact[]>([])
+  const [campaigns, setCampaigns] = useState<CampaignRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+
+  // Compose state
+  const [cName, setCName] = useState('')
+  const [cChannel, setCChannel] = useState<'email' | 'sms'>('email')
+  const [cSubject, setCSubject] = useState('')
+  const [cBody, setCBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sendNote, setSendNote] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
@@ -31,7 +52,13 @@ export default function MarketingTab() {
       const { createClient } = await import('@/lib/supabase')
       const engine = await fetchEngineData(createClient())
       setEnabled(engine.marketingEnabled)
-      if (engine.marketingEnabled) setContacts(await listMarketingContacts(member.operatorId))
+      if (engine.marketingEnabled) {
+        const [cts, cmps] = await Promise.all([
+          listMarketingContacts(member.operatorId),
+          listCampaigns(member.operatorId),
+        ])
+        setContacts(cts); setCampaigns(cmps)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load marketing')
     } finally { setLoading(false) }
@@ -53,6 +80,28 @@ export default function MarketingTab() {
     const a = document.createElement('a')
     a.href = url; a.download = 'liabl-marketing-contacts.csv'; a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function sendCampaign() {
+    setSending(true); setError(null); setSendNote(null)
+    try {
+      const res = await fetch('/api/marketing/campaigns', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: cName.trim(), channel: cChannel,
+          subject: cChannel === 'email' ? cSubject.trim() : null,
+          body: cBody.trim(),
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to queue campaign.')
+      setSendNote(`Queued to ${json.audienceCount} ${cChannel === 'email' ? 'email' : 'SMS'} recipient${json.audienceCount === 1 ? '' : 's'}. Sending starts within a minute.`)
+      setCName(''); setCSubject(''); setCBody('')
+      await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to queue campaign')
+    } finally { setSending(false) }
   }
 
   if (loading) return <div className="text-sm text-gray-500">Loading marketing…</div>
@@ -83,8 +132,8 @@ export default function MarketingTab() {
           <h3 className="font-medium text-ink mb-1">Turn on marketing</h3>
           <p className="text-sm text-gray-500 mb-4">
             When on, participants can opt in to marketing email and text at check-in — separately from their waiver
-            confirmation. You&apos;ll build an audience here, and can broadcast to it (coming soon) or sync it to your
-            own marketing platform.
+            confirmation. You&apos;ll build an audience here, and can broadcast to it or sync it to your own marketing
+            platform.
           </p>
           <button onClick={() => toggleEnabled(true)} disabled={busy} className="btn-primary text-sm" style={{ maxWidth: 200 }}>
             {busy ? 'Enabling…' : 'Enable marketing'}
@@ -137,7 +186,80 @@ export default function MarketingTab() {
             </table>
           </div>
 
-          <p className="text-xs text-gray-400 mt-4">Broadcasts and automations are coming next. In the meantime, sync this audience to your marketing platform via the contacts API.</p>
+          <div className="grid md:grid-cols-2 gap-6 mt-8">
+            <div className="card">
+              <h3 className="font-medium text-ink mb-1">New broadcast</h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Send a one-off message to everyone opted in to this channel. Recipients are frozen when you send, an
+                unsubscribe link (and STOP for text) is added automatically, and delivery starts within a minute.
+              </p>
+
+              <div className="flex gap-2 mb-3">
+                {(['email', 'sms'] as const).map(ch => {
+                  const n = ch === 'email' ? emailCount : smsCount
+                  return (
+                    <button key={ch} type="button" onClick={() => setCChannel(ch)}
+                      className={`flex-1 text-sm rounded-xl border px-3 py-2 ${cChannel === ch ? 'border-brand text-brand bg-brand/5' : 'border-black/10 text-gray-500'}`}>
+                      {ch === 'email' ? 'Email' : 'Text'} <span className="text-xs opacity-60">· {n}</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <input className="form-input w-full mb-2" value={cName} onChange={e => setCName(e.target.value)}
+                placeholder="Campaign name (internal)" maxLength={120} />
+
+              {cChannel === 'email' && (
+                <input className="form-input w-full mb-2" value={cSubject} onChange={e => setCSubject(e.target.value)}
+                  placeholder="Subject line" maxLength={200} />
+              )}
+
+              <textarea className="form-input w-full mb-1" rows={cChannel === 'sms' ? 4 : 6} value={cBody}
+                onChange={e => setCBody(e.target.value)}
+                placeholder={cChannel === 'email' ? 'Write your email…' : 'Write your text message…'} />
+              {cChannel === 'sms' && (
+                <p className="text-[11px] text-gray-400 mb-2">{cBody.length} characters · “Reply STOP to opt out.” is appended automatically.</p>
+              )}
+
+              {sendNote && <div className="mb-2 bg-green-50 border border-green-200 text-green-700 rounded-xl p-2 text-xs">{sendNote}</div>}
+
+              <button onClick={sendCampaign}
+                disabled={sending || !cName.trim() || !cBody.trim() || (cChannel === 'email' && !cSubject.trim()) || (cChannel === 'email' ? emailCount : smsCount) === 0}
+                className="btn-primary text-sm w-full mt-1">
+                {sending ? 'Queuing…' : `Send to ${cChannel === 'email' ? emailCount : smsCount} ${cChannel === 'email' ? 'email' : 'SMS'} subscriber${(cChannel === 'email' ? emailCount : smsCount) === 1 ? '' : 's'}`}
+              </button>
+              <p className="text-[11px] text-gray-400 mt-3">
+                Built-in broadcasts stay modest by design. For large volume, scheduling, segmentation, or A/B testing,
+                sync your audience to a platform like Mailchimp or Klaviyo via the contacts API.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="font-medium text-ink mb-3">Recent broadcasts</h3>
+              {campaigns.length === 0 ? (
+                <div className="card text-sm text-gray-400">No broadcasts yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {campaigns.map(c => (
+                    <div key={c.id} className="card py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm text-ink truncate">{c.name}</div>
+                          <div className="text-xs text-gray-400">
+                            {c.channel === 'email' ? 'Email' : 'Text'} · {fmtDate(c.sentAt ?? c.createdAt)}
+                          </div>
+                        </div>
+                        <span className={`text-[10px] uppercase border rounded px-1.5 py-0.5 shrink-0 ${STATUS_STYLE[c.status] ?? 'border-black/10 text-gray-400'}`}>{c.status}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-2">
+                        {c.sentCount}/{c.audienceCount} sent{c.failedCount > 0 && <span className="text-red-500"> · {c.failedCount} failed</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>
