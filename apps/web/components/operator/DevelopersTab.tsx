@@ -7,6 +7,7 @@ import { getCurrentOperatorMember } from '@/lib/auth'
 import { listApiKeys, revokeApiKey, API_SCOPE_OPTIONS, type ApiKeyRecord } from '@/lib/api-keys'
 import WebhooksPanel from '@/components/operator/WebhooksPanel'
 import OAuthClientsPanel from '@/components/operator/OAuthClientsPanel'
+import ConnectorsPanel from '@/components/operator/ConnectorsPanel'
 
 function fmtDate(s: string | null): string {
   if (!s) return '—'
@@ -202,6 +203,7 @@ export default function DevelopersTab() {
 
       {operatorId && <WebhooksPanel operatorId={operatorId} />}
       {operatorId && <OAuthClientsPanel operatorId={operatorId} />}
+      {operatorId && <ConnectorsPanel operatorId={operatorId} />}
     </div>
   )
 }

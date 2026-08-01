@@ -14,18 +14,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticateApiRequest, logApiRequest, apiError, apiResponse } from '@/lib/api-auth'
-import { sendReservationInviteEmail } from '@/lib/email'
-import {
-  reservationSelfServiceUrl, reservationCheckInUrl, reservationGroupCheckInUrl, reservationMemberCheckInUrl,
-} from '@/lib/participant-url'
+import { createApiReservation } from '@/lib/reservation-create'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-function todayISO(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 export async function POST(request: NextRequest) {
   const auth = await authenticateApiRequest(request, 'reservations:write')
@@ -34,82 +26,34 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}))
-    const activityKey: string = (body.activity_key as string | undefined)?.trim() || ''
-    if (!activityKey) { await logApiRequest(admin, ctx, request, 400); return apiError(400, 'invalid_request', 'activity_key is required.') }
-
-    // Validate the activity belongs to this operator.
-    const { data: activity } = await admin
-      .from('activities').select('id').eq('operator_id', ctx.operatorId).eq('key', activityKey).maybeSingle()
-    if (!activity) { await logApiRequest(admin, ctx, request, 400); return apiError(400, 'unknown_activity', `No activity "${activityKey}" for this operator.`) }
-
-    const reservationDate: string = (body.reservation_date as string | undefined) || todayISO()
-    const organizerName: string | null = (body.organizer_name as string | undefined)?.trim() || null
-
-    // Auto-create a bound session (reuses the whole check-in machinery).
-    // Stamp the caller's mode: a test key's session (and everything that
-    // flows from it — reservation, members, waivers) is sandbox data.
-    const { data: session, error: sErr } = await admin
-      .from('sessions')
-      .insert({ operator_id: ctx.operatorId, session_ref: `API: ${organizerName || 'Reservation'}`, session_time: null, session_date: reservationDate, activity_key: activityKey, mode: ctx.mode })
-      .select('id').single()
-    if (sErr) throw new Error(`session: ${sErr.message}`)
-
-    const { data: reservation, error: rErr } = await admin
-      .from('reservations')
-      .insert({
-        operator_id: ctx.operatorId,
-        activity_key: activityKey,
-        session_id: session!.id,
-        reservation_date: reservationDate,
-        party_size: typeof body.party_size === 'number' ? body.party_size : null,
-        organizer_name: organizerName,
-        organizer_email: (body.organizer_email as string | undefined)?.trim().toLowerCase() || null,
-        mode: ctx.mode,
-      })
-      .select('id, self_service_token, status')
-      .single()
-    if (rErr) throw new Error(`reservation: ${rErr.message}`)
-
-    // Optional attendees.
-    const memberInput: { full_name?: string; email?: string }[] = Array.isArray(body.members) ? body.members : []
-    const createdMembers: { id: string; full_name: string | null; email: string | null; check_in_url: string }[] = []
-    if (memberInput.length > 0) {
-      const rows = memberInput.map(m => ({
-        reservation_id: reservation!.id, operator_id: ctx.operatorId,
-        full_name: m.full_name?.trim() || null, email: m.email?.trim().toLowerCase() || null,
-      }))
-      const { data: inserted } = await admin.from('reservation_members').insert(rows).select('id, full_name, email, member_token')
-      for (const m of inserted ?? []) {
-        createdMembers.push({ id: m.id, full_name: m.full_name, email: m.email, check_in_url: reservationMemberCheckInUrl(m.member_token) })
-        if (body.send_invites && m.email) {
-          try {
-            const [{ data: op }, { data: act }] = await Promise.all([
-              admin.from('operators').select('name').eq('id', ctx.operatorId).maybeSingle(),
-              admin.from('activities').select('display_name').eq('operator_id', ctx.operatorId).eq('key', activityKey).maybeSingle(),
-            ])
-            await sendReservationInviteEmail({
-              to: m.email, organizerName: organizerName || 'The organizer',
-              operatorName: op?.name ?? 'the operator', activityLabel: act?.display_name ?? activityKey,
-              reservationDate, checkInUrl: reservationMemberCheckInUrl(m.member_token),
-            })
-            await admin.from('reservation_members').update({ invited_at: new Date().toISOString() }).eq('id', m.id)
-          } catch { /* invite email best-effort */ }
-        }
-      }
+    // The whole session+reservation+members+invites flow lives in the shared
+    // helper, so /api/v1 and inbound connectors create bookings identically.
+    const outcome = await createApiReservation(admin, {
+      operatorId: ctx.operatorId,
+      mode: ctx.mode,
+      activityKey: (body.activity_key as string | undefined) || '',
+      reservationDate: (body.reservation_date as string | undefined) || null,
+      partySize: typeof body.party_size === 'number' ? body.party_size : null,
+      organizerName: (body.organizer_name as string | undefined) || null,
+      organizerEmail: (body.organizer_email as string | undefined) || null,
+      members: Array.isArray(body.members) ? body.members : [],
+      sendInvites: !!body.send_invites,
+      sessionRefPrefix: 'API',
+    })
+    if (outcome.error) {
+      await logApiRequest(admin, ctx, request, 400)
+      return apiError(400, outcome.error.code, outcome.error.message)
     }
 
+    const r = outcome.result!
     await logApiRequest(admin, ctx, request, 201)
     return apiResponse(ctx, {
-      id: reservation!.id,
-      status: reservation!.status,
-      activity_key: activityKey,
-      reservation_date: reservationDate,
-      links: {
-        self_service: reservationSelfServiceUrl(reservation!.self_service_token),
-        shared_check_in: reservationCheckInUrl(reservation!.id),
-        group_leader: reservationGroupCheckInUrl(reservation!.id),
-      },
-      members: createdMembers,
+      id: r.id,
+      status: r.status,
+      activity_key: r.activityKey,
+      reservation_date: r.reservationDate,
+      links: r.links,
+      members: r.members,
     }, { status: 201 })
   } catch (e) {
     await logApiRequest(admin, ctx, request, 500)
