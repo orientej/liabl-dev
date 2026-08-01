@@ -21,6 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .select('id, signed_at, activity_key, is_minor, reservation_id, reservation_member_id, document_hash, pdf_path, created_at')
       .eq('id', params.id)
       .eq('operator_id', ctx.operatorId)   // operator scoping
+      .eq('mode', ctx.mode)                // sandbox isolation
       .maybeSingle()
     if (!waiver) { await logApiRequest(admin, ctx, request, 404); return apiError(404, 'not_found', 'Waiver not found.') }
 

@@ -47,12 +47,14 @@ export async function listSessions(
       .from('sessions')
       .select('id, session_ref, session_time, session_date, activity_key, pinned_version_id, archived_at')
       .eq('operator_id', operatorId)
+      .neq('mode', 'test')   // sandbox sessions stay out of the operator console
       .order('session_date', { ascending: false }),
     supabase
       .from('waivers')
       .select('session_id')
       .eq('operator_id', operatorId)
-      .not('signed_at', 'is', null),
+      .not('signed_at', 'is', null)
+      .neq('mode', 'test'),   // sandbox data never appears in the operator's live views
     supabase
       .from('activities')
       .select('key, current_version_id, current_version_number')

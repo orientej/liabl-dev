@@ -28,6 +28,7 @@ export async function fetchBillingStatus(
       .select('id', { count: 'exact', head: true })
       .eq('operator_id', operatorId)
       .not('signed_at', 'is', null)
+      .neq('mode', 'test')   // sandbox signatures don't count toward the plan
       .gte('signed_at', periodStart),
     supabase
       .from('operators')

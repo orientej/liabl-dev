@@ -130,6 +130,7 @@ export default function RosterTab() {
         const { data } = await supabase
           .from('waivers')
           .select('id, session_id, signed_at, activity_key, is_minor, ip_address, document_hash, pdf_path, redacted_at, seal_error, answers, clauses, participants(full_name, email), sessions(session_ref, session_time), template_versions(version_number)')
+          .neq('mode', 'test')   // sandbox check-ins never appear on the live roster
           .order('created_at', { ascending: true })
           .limit(50)
 

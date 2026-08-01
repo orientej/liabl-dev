@@ -21,6 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .select('id, activity_key, reservation_date, party_size, organizer_name, organizer_email, status, created_at')
       .eq('id', params.id)
       .eq('operator_id', ctx.operatorId)   // operator scoping — never trust the path alone
+      .eq('mode', ctx.mode)                // sandbox isolation — a test key can't read live data
       .maybeSingle()
     if (!reservation) { await logApiRequest(admin, ctx, request, 404); return apiError(404, 'not_found', 'Reservation not found.') }
 

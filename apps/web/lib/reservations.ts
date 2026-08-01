@@ -84,6 +84,7 @@ export async function listReservations(operatorId: string): Promise<ReservationR
       .from('reservations')
       .select('id, activity_key, session_id, reservation_date, party_size, organizer_name, organizer_email, status, self_service_token, notes, created_at')
       .eq('operator_id', operatorId)
+      .neq('mode', 'test')   // sandbox reservations stay out of the operator console
       .order('created_at', { ascending: false }),
     supabase
       .from('reservation_members')

@@ -46,9 +46,11 @@ export async function POST(request: NextRequest) {
     const organizerName: string | null = (body.organizer_name as string | undefined)?.trim() || null
 
     // Auto-create a bound session (reuses the whole check-in machinery).
+    // Stamp the caller's mode: a test key's session (and everything that
+    // flows from it — reservation, members, waivers) is sandbox data.
     const { data: session, error: sErr } = await admin
       .from('sessions')
-      .insert({ operator_id: ctx.operatorId, session_ref: `API: ${organizerName || 'Reservation'}`, session_time: null, session_date: reservationDate, activity_key: activityKey })
+      .insert({ operator_id: ctx.operatorId, session_ref: `API: ${organizerName || 'Reservation'}`, session_time: null, session_date: reservationDate, activity_key: activityKey, mode: ctx.mode })
       .select('id').single()
     if (sErr) throw new Error(`session: ${sErr.message}`)
 
@@ -62,6 +64,7 @@ export async function POST(request: NextRequest) {
         party_size: typeof body.party_size === 'number' ? body.party_size : null,
         organizer_name: organizerName,
         organizer_email: (body.organizer_email as string | undefined)?.trim().toLowerCase() || null,
+        mode: ctx.mode,
       })
       .select('id, self_service_token, status')
       .single()
@@ -127,6 +130,7 @@ export async function GET(request: NextRequest) {
     let q = admin.from('reservations')
       .select('id, activity_key, reservation_date, party_size, status, created_at')
       .eq('operator_id', ctx.operatorId)
+      .eq('mode', ctx.mode)   // sandbox isolation: a key only sees its own mode's data
       .order('created_at', { ascending: false })
       .limit(limit)
     if (before) q = q.lt('created_at', before)

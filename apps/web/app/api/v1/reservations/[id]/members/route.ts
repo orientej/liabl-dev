@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const { data: reservation } = await admin
       .from('reservations')
       .select('id, activity_key, reservation_date, organizer_name, status')
-      .eq('id', params.id).eq('operator_id', ctx.operatorId).maybeSingle()
+      .eq('id', params.id).eq('operator_id', ctx.operatorId).eq('mode', ctx.mode).maybeSingle()
     if (!reservation) { await logApiRequest(admin, ctx, request, 404); return apiError(404, 'not_found', 'Reservation not found.') }
     if (reservation.status === 'cancelled') { await logApiRequest(admin, ctx, request, 409); return apiError(409, 'cancelled', 'This reservation has been cancelled.') }
 

@@ -132,6 +132,7 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
     supabase
       .from('waivers')
       .select('id, activity_key, risk_level, risk_score, signed_at, answers')
+      .neq('mode', 'test')
       .gte('signed_at', range.start.toISOString())
       .lte('signed_at', range.end.toISOString())
       .not('signed_at', 'is', null)
@@ -141,6 +142,7 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
     supabase
       .from('waivers')
       .select('id, risk_level, signed_at')
+      .neq('mode', 'test')
       .gte('signed_at', range.priorStart.toISOString())
       .lte('signed_at', range.priorEnd.toISOString())
       .not('signed_at', 'is', null)
@@ -150,6 +152,7 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
     supabase
       .from('waivers')
       .select('signed_at')
+      .neq('mode', 'test')
       .gte('signed_at', (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString() })())
       .not('signed_at', 'is', null)
       .then(r => r.data ?? []),
@@ -158,6 +161,7 @@ export async function fetchAnalytics(period: Period): Promise<AnalyticsData> {
     supabase
       .from('waivers')
       .select('id, signed_at')
+      .neq('mode', 'test')
       .gte('created_at', range.start.toISOString())
       .lte('created_at', range.end.toISOString())
       .then(r => r.data ?? []),
@@ -308,6 +312,7 @@ export async function fetchWaiverExportData(): Promise<WaiverExportRow[]> {
       participants(full_name, email)
     `)
     .not('signed_at', 'is', null)
+    .neq('mode', 'test')
     .order('signed_at', { ascending: false })
     .limit(1000)
 
