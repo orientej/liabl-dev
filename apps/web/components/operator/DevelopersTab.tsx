@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getCurrentOperatorMember } from '@/lib/auth'
 import { listApiKeys, revokeApiKey, API_SCOPE_OPTIONS, type ApiKeyRecord } from '@/lib/api-keys'
 import WebhooksPanel from '@/components/operator/WebhooksPanel'
+import OAuthClientsPanel from '@/components/operator/OAuthClientsPanel'
 
 function fmtDate(s: string | null): string {
   if (!s) return '—'
@@ -200,6 +201,7 @@ export default function DevelopersTab() {
       </div>
 
       {operatorId && <WebhooksPanel operatorId={operatorId} />}
+      {operatorId && <OAuthClientsPanel operatorId={operatorId} />}
     </div>
   )
 }
