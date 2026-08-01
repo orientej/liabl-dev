@@ -55,6 +55,7 @@ export const OPENAPI_SPEC = {
       '- `reservations:read` — read reservations and signature status',
       '- `reservations:write` — create reservations and add attendees',
       '- `waivers:read` — read waiver status and sealed PDFs',
+      '- `contacts:read` — read opted-in marketing contacts',
       '- `webhooks:manage` — manage webhook endpoints',
       '',
       'A request whose key lacks the required scope returns `403 insufficient_scope`.',
@@ -95,6 +96,7 @@ export const OPENAPI_SPEC = {
       '- `document.signed` — a supplemental document is signed',
       '- `reservation.member_signed` — an attendee completed their check-in',
       '- `reservation.completed` — every attendee in a reservation has signed',
+      '- `marketing.contact` — a participant opted in to marketing (email/SMS)',
       '',
       'Each delivery carries a signature header so you can verify it came from',
       'Liabl and was not tampered with:',
@@ -130,6 +132,7 @@ export const OPENAPI_SPEC = {
   tags: [
     { name: 'Reservations', description: 'Create bookings and track check-in progress.' },
     { name: 'Waivers', description: 'Read waiver signature status and sealed PDFs.' },
+    { name: 'Contacts', description: 'Read opted-in marketing contacts to sync elsewhere.' },
     { name: 'Webhooks', description: 'Manage outbound event subscriptions.' },
   ],
   paths: {
@@ -218,6 +221,25 @@ export const OPENAPI_SPEC = {
           '401': { $ref: '#/components/responses/Unauthorized' },
           '403': { $ref: '#/components/responses/Forbidden' },
           '404': { $ref: '#/components/responses/NotFound' },
+          '429': { $ref: '#/components/responses/RateLimited' },
+        },
+      },
+    },
+    '/contacts': {
+      get: {
+        tags: ['Contacts'],
+        summary: 'List marketing contacts',
+        description: 'Opted-in marketing contacts for the operator (active consent only), newest-first, cursor-paginated. Use this to sync your audience to a 3rd-party marketing platform. Filter by channel with `?channel=email` or `?channel=sms`.',
+        security: [{ bearerAuth: ['contacts:read'] }],
+        parameters: [
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 500, default: 100 } },
+          { name: 'channel', in: 'query', schema: { type: 'string', enum: ['email', 'sms'] } },
+          { name: 'created_before', in: 'query', schema: { type: 'string', format: 'date-time' } },
+        ],
+        responses: {
+          '200': { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/ContactList' } } } },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+          '403': { $ref: '#/components/responses/Forbidden' },
           '429': { $ref: '#/components/responses/RateLimited' },
         },
       },
@@ -403,6 +425,26 @@ export const OPENAPI_SPEC = {
           created_at: { type: 'string', format: 'date-time' },
         },
       },
+      Contact: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', format: 'email' },
+          phone: { type: 'string', nullable: true },
+          full_name: { type: 'string', nullable: true },
+          email_consent: { type: 'boolean' },
+          sms_consent: { type: 'boolean' },
+          email_consent_at: { type: 'string', format: 'date-time', nullable: true },
+          sms_consent_at: { type: 'string', format: 'date-time', nullable: true },
+          created_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ContactList: {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: { $ref: '#/components/schemas/Contact' } },
+          next_cursor: { type: 'string', format: 'date-time', nullable: true },
+        },
+      },
       WebhookEndpoint: {
         type: 'object',
         properties: {
@@ -426,7 +468,7 @@ export const OPENAPI_SPEC = {
           url: { type: 'string', format: 'uri', description: 'Must be https.' },
           events: {
             type: 'array', minItems: 1,
-            items: { type: 'string', enum: ['waiver.signed', 'document.signed', 'reservation.member_signed', 'reservation.completed'] },
+            items: { type: 'string', enum: ['waiver.signed', 'document.signed', 'reservation.member_signed', 'reservation.completed', 'marketing.contact'] },
           },
           description: { type: 'string' },
         },

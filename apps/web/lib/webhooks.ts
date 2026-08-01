@@ -27,6 +27,7 @@ export const WEBHOOK_EVENTS = [
   'document.signed',
   'reservation.member_signed',
   'reservation.completed',
+  'marketing.contact',
 ] as const
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]
 

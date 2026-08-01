@@ -617,6 +617,19 @@ export default function ParticipantFlow() {
     fetch(`/api/waivers/${waiverId}/send-confirmation`, { method: 'POST' })
       .catch(err => console.error('[finishCheckIn] confirmation email failed:', err))
 
+    // Marketing (M1): record a marketing opt-in, if the participant gave one.
+    // Fire-and-forget; the route derives operator + mode from the waiver and
+    // skips test-mode. Separate from the transactional confirmation above.
+    if (answers.marketingEmailConsent || answers.marketingSmsConsent) {
+      fetch('/api/marketing/opt-in', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          waiverId, email: answers.email, phone: answers.phone ?? null, fullName: answers.fullName,
+          emailConsent: !!answers.marketingEmailConsent, smsConsent: !!answers.marketingSmsConsent,
+        }),
+      }).catch(err => console.error('[finishCheckIn] marketing opt-in failed:', err))
+    }
+
     // Group reservations: bind this waiver to its reservation member and
     // advance the reservation's progress. Fire-and-forget for the same
     // reason — the check-in is already valid regardless.
@@ -832,7 +845,7 @@ export default function ParticipantFlow() {
 
           <div className="animate-fade-up" key={step}>
             {step === 0 && <StepEntry onNext={() => next()} operatorName={engineData?.operatorName} sessionTime={sessionInfo?.time ?? null} />}
-            {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} ageOfMajority={engineData?.ageOfMajority ?? 18} />}
+            {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} ageOfMajority={engineData?.ageOfMajority ?? 18} marketingEnabled={engineData?.marketingEnabled ?? false} operatorName={engineData?.operatorName} />}
             {step === 2 && <StepActivity  activities={engineData?.activities ?? []} onNext={(v) => next(v)} onBack={prev} />}
             {step === 3 && (
               <StepHealth

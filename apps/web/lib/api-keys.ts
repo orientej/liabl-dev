@@ -14,6 +14,7 @@ export const API_SCOPE_OPTIONS: { scope: string; label: string }[] = [
   { scope: 'reservations:write', label: 'Create reservations & add attendees' },
   { scope: 'sessions:write',     label: 'Create sessions / timeslots' },
   { scope: 'waivers:read',       label: 'Read waiver status & documents' },
+  { scope: 'contacts:read',      label: 'Read opted-in marketing contacts' },
   { scope: 'webhooks:manage',    label: 'Manage webhook endpoints' },
 ]
 

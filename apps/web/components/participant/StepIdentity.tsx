@@ -2,11 +2,15 @@
 import { useState } from 'react'
 
 interface Props {
-  onNext: (v:{ fullName:string; dob:string; email:string; isMinor:boolean })=>void
+  onNext: (v:{ fullName:string; dob:string; email:string; isMinor:boolean; phone?:string; marketingEmailConsent?:boolean; marketingSmsConsent?:boolean })=>void
   onBack: ()=>void
   // Configurable age of majority (defaults to 18). A participant younger than
   // this is treated as a minor and the guardian step is required.
   ageOfMajority?: number
+  // Marketing (M1): show the optional phone + marketing opt-in when the
+  // operator has marketing enabled. Off by default.
+  marketingEnabled?: boolean
+  operatorName?: string
 }
 
 const MONTHS = [
@@ -16,7 +20,7 @@ const MONTHS = [
 const DAYS   = Array.from({length:31}, (_,i) => i+1)
 const YEARS  = Array.from({length:100}, (_,i) => new Date().getFullYear() - i)
 
-export default function StepIdentity({ onNext, onBack, ageOfMajority = 18 }: Props) {
+export default function StepIdentity({ onNext, onBack, ageOfMajority = 18, marketingEnabled = false, operatorName }: Props) {
   const majority = ageOfMajority > 0 ? ageOfMajority : 18
   const [firstName, setFirstName] = useState('')
   const [lastName,  setLastName]  = useState('')
@@ -24,6 +28,9 @@ export default function StepIdentity({ onNext, onBack, ageOfMajority = 18 }: Pro
   const [day,       setDay]       = useState('')
   const [year,      setYear]      = useState('')
   const [email,     setEmail]     = useState('')
+  const [phone,     setPhone]     = useState('')
+  const [emailOptIn, setEmailOptIn] = useState(false)
+  const [smsOptIn,   setSmsOptIn]   = useState(false)
 
   // Compute age from selected dropdowns
   function getAge(): number | null {
@@ -54,7 +61,12 @@ export default function StepIdentity({ onNext, onBack, ageOfMajority = 18 }: Pro
 
   function submit() {
     if (!valid) return
-    onNext({ fullName:`${firstName.trim()} ${lastName.trim()}`, dob, email, isMinor: isMinor ?? false })
+    onNext({
+      fullName:`${firstName.trim()} ${lastName.trim()}`, dob, email, isMinor: isMinor ?? false,
+      phone: marketingEnabled ? (phone.trim() || undefined) : undefined,
+      marketingEmailConsent: marketingEnabled ? emailOptIn : undefined,
+      marketingSmsConsent: marketingEnabled ? (smsOptIn && !!phone.trim()) : undefined,
+    })
   }
 
   return (
@@ -106,6 +118,27 @@ export default function StepIdentity({ onNext, onBack, ageOfMajority = 18 }: Pro
           <label className="block text-xs font-medium text-gray-500 mb-1">Email Address</label>
           <input className="form-input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@email.com" />
         </div>
+
+        {/* Marketing (optional) — only when the operator has marketing on */}
+        {marketingEnabled && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Mobile phone <span className="text-gray-400">(optional)</span></label>
+              <input className="form-input" type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(555) 123-4567" />
+            </div>
+            <div className="rounded-xl border border-black/10 bg-surface p-3 space-y-2">
+              <div className="text-xs text-gray-500">Stay in touch with {operatorName || 'us'} (optional — separate from your waiver confirmation):</div>
+              <label className="flex items-start gap-2 text-sm text-ink">
+                <input type="checkbox" className="mt-0.5" checked={emailOptIn} onChange={e=>setEmailOptIn(e.target.checked)} />
+                <span>Email me offers and updates</span>
+              </label>
+              <label className={`flex items-start gap-2 text-sm ${phone.trim() ? 'text-ink' : 'text-gray-400'}`}>
+                <input type="checkbox" className="mt-0.5" checked={smsOptIn} disabled={!phone.trim()} onChange={e=>setSmsOptIn(e.target.checked)} />
+                <span>Text me offers and updates{!phone.trim() && ' (add a phone number first)'}. Msg &amp; data rates may apply; reply STOP to opt out.</span>
+              </label>
+            </div>
+          </>
+        )}
       </div>
 
       {isMinor && (

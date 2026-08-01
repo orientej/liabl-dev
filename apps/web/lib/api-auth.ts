@@ -19,6 +19,7 @@ export const API_SCOPES = [
   'reservations:write',
   'sessions:write',
   'waivers:read',
+  'contacts:read',
   'webhooks:manage',
 ] as const
 export type ApiScope = (typeof API_SCOPES)[number]

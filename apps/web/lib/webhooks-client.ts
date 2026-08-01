@@ -17,6 +17,7 @@ export const WEBHOOK_EVENT_OPTIONS: { event: string; label: string }[] = [
   { event: 'document.signed',           label: 'Supplemental document signed' },
   { event: 'reservation.member_signed', label: 'Reservation attendee checked in' },
   { event: 'reservation.completed',     label: 'Reservation fully checked in' },
+  { event: 'marketing.contact',         label: 'Marketing contact opted in' },
 ]
 
 export interface WebhookEndpointRecord {

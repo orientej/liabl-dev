@@ -49,6 +49,11 @@ export interface ParticipantAnswers {
   isMinor: boolean
   guardianName?: string
   guardianSig?: string   // guardian's drawn signature (data-URL), minors only
+  // Marketing (M1): optional phone + per-channel opt-in captured at check-in,
+  // separate from the transactional confirmation email.
+  phone?: string
+  marketingEmailConsent?: boolean
+  marketingSmsConsent?: boolean
 }
 
 export interface WaiverClause {
@@ -105,6 +110,9 @@ export interface EngineData {
   // US, 19 in AL/NE, 21 in MS, etc.). A participant younger than this is a
   // minor and the guardian step is required. Defaults to 18.
   ageOfMajority:       number
+  // Marketing (M1): whether the operator has marketing turned on. Gates the
+  // opt-in capture in the participant flow. Defaults to false.
+  marketingEnabled:    boolean
   activities:          ActivityRecord[]
   questions:           QuestionRecord[]
   clauses:             ClauseRow[]
@@ -237,7 +245,7 @@ export async function fetchEngineData(
 
   const { data: operator, error: operatorError } = await supabase
     .from('operators')
-    .select('id, slug, name, governing_law_state, governing_law_county, status, minor_guardian_signature_mode, age_of_majority')
+    .select('id, slug, name, governing_law_state, governing_law_county, status, minor_guardian_signature_mode, age_of_majority, marketing_enabled')
     .eq('slug', resolvedSlug)
     .maybeSingle()
 
@@ -323,6 +331,7 @@ export async function fetchEngineData(
     ageOfMajority:
       Number.isFinite(operator.age_of_majority) && operator.age_of_majority > 0
         ? operator.age_of_majority : 18,
+    marketingEnabled: operator.marketing_enabled === true,
     activities,
     questions,
     clauses,

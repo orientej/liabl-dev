@@ -9,6 +9,7 @@ import DocumentsTab     from '@/components/operator/DocumentsTab'
 import ReservationsTab  from '@/components/operator/ReservationsTab'
 import DevelopersTab    from '@/components/operator/DevelopersTab'
 import BrandingTab      from '@/components/operator/BrandingTab'
+import MarketingTab     from '@/components/operator/MarketingTab'
 import AnalyticsTab     from '@/components/operator/AnalyticsTab'
 import IncidentTab      from '@/components/operator/IncidentTab'
 import MobileTab        from '@/components/operator/MobileTab'
@@ -25,7 +26,7 @@ import {
   IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
 } from '@liabl/ui'
 
-type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'|'developers'|'branding'
+type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'|'developers'|'branding'|'marketing'
 
 const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
 
@@ -178,6 +179,7 @@ export default function OperatorPage() {
     { key:'mobile',        label:'Mobile App',     Icon: IconMobile     },
     { key:'settings',      label:'Settings',       Icon: IconUserGroup  },
     { key:'branding',      label:'Branding',       Icon: IconTemplate   },
+    { key:'marketing',     label:'Marketing',      Icon: IconAuditTrail },
     { key:'developers',    label:'Developers',     Icon: IconRocket     },
   ]
 
@@ -273,6 +275,7 @@ export default function OperatorPage() {
         {tab === 'sessions'      && <SessionsTab />}
         {tab === 'developers'    && <DevelopersTab />}
         {tab === 'branding'      && <BrandingTab />}
+        {tab === 'marketing'     && <MarketingTab />}
       </div>
     </div>
   )
