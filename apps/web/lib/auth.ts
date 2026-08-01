@@ -138,6 +138,7 @@ export interface UpdateOperatorProfileInput {
   name?: string
   governingLawState?: string
   governingLawCounty?: string | null
+  ageOfMajority?: number
 }
 
 /** Edits the organization's own profile — name and governing law. Relies
@@ -150,6 +151,7 @@ export async function updateOperatorProfile(operatorId: string, input: UpdateOpe
   if (input.name               !== undefined) patch.name                 = input.name.trim()
   if (input.governingLawState  !== undefined) patch.governing_law_state  = input.governingLawState.trim()
   if (input.governingLawCounty !== undefined) patch.governing_law_county = input.governingLawCounty?.trim() || null
+  if (input.ageOfMajority      !== undefined && input.ageOfMajority > 0) patch.age_of_majority = Math.round(input.ageOfMajority)
 
   const { error } = await supabase.from('operators').update(patch).eq('id', operatorId)
   if (error) throw new Error(`update operator profile: ${error.message}`)

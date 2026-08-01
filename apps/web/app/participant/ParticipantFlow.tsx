@@ -832,7 +832,7 @@ export default function ParticipantFlow() {
 
           <div className="animate-fade-up" key={step}>
             {step === 0 && <StepEntry onNext={() => next()} operatorName={engineData?.operatorName} sessionTime={sessionInfo?.time ?? null} />}
-            {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} />}
+            {step === 1 && <StepIdentity  onNext={(v) => next(v)} onBack={prev} ageOfMajority={engineData?.ageOfMajority ?? 18} />}
             {step === 2 && <StepActivity  activities={engineData?.activities ?? []} onNext={(v) => next(v)} onBack={prev} />}
             {step === 3 && (
               <StepHealth

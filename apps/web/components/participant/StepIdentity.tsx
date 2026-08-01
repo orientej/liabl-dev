@@ -4,6 +4,9 @@ import { useState } from 'react'
 interface Props {
   onNext: (v:{ fullName:string; dob:string; email:string; isMinor:boolean })=>void
   onBack: ()=>void
+  // Configurable age of majority (defaults to 18). A participant younger than
+  // this is treated as a minor and the guardian step is required.
+  ageOfMajority?: number
 }
 
 const MONTHS = [
@@ -13,7 +16,8 @@ const MONTHS = [
 const DAYS   = Array.from({length:31}, (_,i) => i+1)
 const YEARS  = Array.from({length:100}, (_,i) => new Date().getFullYear() - i)
 
-export default function StepIdentity({ onNext, onBack }: Props) {
+export default function StepIdentity({ onNext, onBack, ageOfMajority = 18 }: Props) {
+  const majority = ageOfMajority > 0 ? ageOfMajority : 18
   const [firstName, setFirstName] = useState('')
   const [lastName,  setLastName]  = useState('')
   const [month,     setMonth]     = useState('')
@@ -36,7 +40,7 @@ export default function StepIdentity({ onNext, onBack }: Props) {
   }
 
   const age     = getAge()
-  const isMinor = age !== null && age < 18
+  const isMinor = age !== null && age < majority
   const dobFilled = !!month && !!day && !!year
   // v23 M1 fix #4 — output ISO 8601 date format (YYYY-MM-DD) so Supabase
   // can store it in a real `date` column instead of `text`. Previously
@@ -106,7 +110,7 @@ export default function StepIdentity({ onNext, onBack }: Props) {
 
       {isMinor && (
         <div className="mt-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl p-3 text-sm">
-          ⚠️ Participant is under 18 — a guardian signature will be required.
+          ⚠️ Participant is under {majority} — a guardian signature will be required.
         </div>
       )}
 

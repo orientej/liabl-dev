@@ -20,6 +20,7 @@ export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSess
   const [name, setName] = useState('')
   const [lawState, setLawState] = useState('')
   const [lawCounty, setLawCounty] = useState('')
+  const [ageOfMajority, setAgeOfMajority] = useState(18)
   const [editingProfile, setEditingProfile] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
 
@@ -40,6 +41,7 @@ export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSess
       setName(engineData.operatorName)
       setLawState(engineData.governingLawState)
       setLawCounty(engineData.governingLawCounty ?? '')
+      setAgeOfMajority(engineData.ageOfMajority ?? 18)
 
       const [teamData, inviteData] = await Promise.all([
         listTeamMembers(m.operatorId),
@@ -63,6 +65,7 @@ export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSess
     try {
       await updateOperatorProfile(member.operatorId, {
         name, governingLawState: lawState, governingLawCounty: lawCounty || null,
+        ageOfMajority,
       })
       setEditingProfile(false)
       await refresh()
@@ -110,6 +113,7 @@ export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSess
           <div className="space-y-1 text-sm">
             <div><span className="text-gray-400">Name:</span> {name}</div>
             <div><span className="text-gray-400">Governing law:</span> {lawState}{lawCounty ? `, ${lawCounty}` : ''}</div>
+            <div><span className="text-gray-400">Age of majority:</span> {ageOfMajority}</div>
           </div>
         ) : (
           <div>
@@ -129,7 +133,13 @@ export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSess
                 <input className="form-input" value={lawCounty} onChange={e => setLawCounty(e.target.value)} />
               </div>
             </div>
-            <div className="text-xs text-gray-400 mb-4">This determines the governing-law clause on every waiver you generate.</div>
+            <div className="mb-4" style={{ maxWidth: 220 }}>
+              <label className="block text-xs text-gray-500 mb-1">Age of majority</label>
+              <select className="form-input" value={ageOfMajority} onChange={e => setAgeOfMajority(Number(e.target.value))}>
+                {[18, 19, 21].map(a => <option key={a} value={a}>{a} years</option>)}
+              </select>
+            </div>
+            <div className="text-xs text-gray-400 mb-4">The governing-law clause uses your state/county. The age of majority determines when a participant needs a guardian signature — 18 in most states, 19 in AL/NE, 21 in MS.</div>
             <div className="flex gap-2">
               <button onClick={() => setEditingProfile(false)} className="btn-secondary py-2 text-sm">Cancel</button>
               <button onClick={saveProfile} disabled={savingProfile || !name.trim() || !lawState.trim()} className="btn-primary py-2 text-sm">

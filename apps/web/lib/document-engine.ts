@@ -101,6 +101,10 @@ export interface EngineData {
   // documents — 'per_document' (a signature on each) or 'single' (one
   // signature reused across all). Defaults to 'per_document'.
   minorGuardianSignatureMode: 'per_document' | 'single'
+  // Configurable age of majority (jurisdiction-dependent — 18 in most of the
+  // US, 19 in AL/NE, 21 in MS, etc.). A participant younger than this is a
+  // minor and the guardian step is required. Defaults to 18.
+  ageOfMajority:       number
   activities:          ActivityRecord[]
   questions:           QuestionRecord[]
   clauses:             ClauseRow[]
@@ -233,7 +237,7 @@ export async function fetchEngineData(
 
   const { data: operator, error: operatorError } = await supabase
     .from('operators')
-    .select('id, slug, name, governing_law_state, governing_law_county, status, minor_guardian_signature_mode')
+    .select('id, slug, name, governing_law_state, governing_law_county, status, minor_guardian_signature_mode, age_of_majority')
     .eq('slug', resolvedSlug)
     .maybeSingle()
 
@@ -316,6 +320,9 @@ export async function fetchEngineData(
     governingLawCounty: operator.governing_law_county ?? null,
     minorGuardianSignatureMode:
       operator.minor_guardian_signature_mode === 'single' ? 'single' : 'per_document',
+    ageOfMajority:
+      Number.isFinite(operator.age_of_majority) && operator.age_of_majority > 0
+        ? operator.age_of_majority : 18,
     activities,
     questions,
     clauses,
