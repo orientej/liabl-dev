@@ -1,7 +1,7 @@
 'use client'
-// Marketing automation — M2 console. Turn marketing on, see the audience you're
-// capturing consent for, and broadcast to it (email via Resend, SMS via Twilio).
-// Built-in stays basic (consent + contacts + broadcasts; automations next);
+// Marketing automation — M3 console. Turn marketing on, see the audience you're
+// capturing consent for, broadcast to it (email via Resend, SMS via Twilio), and
+// run set-and-forget automations (thank-you, win-back). Built-in stays basic;
 // volume/complex work goes to a 3rd-party platform via the contacts API + the
 // marketing.contact webhook.
 import { useState, useEffect, useCallback } from 'react'
@@ -11,6 +11,7 @@ import {
   listMarketingContacts, setMarketingEnabled, contactsToCsv, listCampaigns,
   type MarketingContact, type CampaignRecord,
 } from '@/lib/marketing-client'
+import AutomationsPanel from '@/components/operator/AutomationsPanel'
 
 function fmtDate(s: string | null): string {
   if (!s) return '—'
@@ -260,6 +261,8 @@ export default function MarketingTab() {
               )}
             </div>
           </div>
+
+          <AutomationsPanel operatorId={operatorId!} emailCount={emailCount} smsCount={smsCount} smsAvailable={true} />
         </>
       )}
     </div>

@@ -81,3 +81,50 @@ export async function listCampaigns(operatorId: string): Promise<CampaignRecord[
     sentAt: c.sent_at ?? null, createdAt: c.created_at,
   }))
 }
+
+// ── M3 automations ────────────────────────────────────────────────────────
+// Two per-operator lifecycle automations. Operators manage their own config
+// directly (RLS "automations_manage_own"), like the marketing_enabled toggle.
+
+export type AutomationTrigger = 'post_visit' | 'win_back'
+
+export interface AutomationRecord {
+  trigger:   AutomationTrigger
+  channel:   'email' | 'sms'
+  subject:   string | null
+  body:      string
+  delayDays: number
+  active:    boolean
+}
+
+export interface AutomationInput extends AutomationRecord {}
+
+export async function listAutomations(operatorId: string): Promise<AutomationRecord[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('automations')
+    .select('trigger, channel, subject, body, delay_days, active')
+    .eq('operator_id', operatorId)
+  if (error) throw new Error(`list automations: ${error.message}`)
+  return (data ?? []).map(a => ({
+    trigger: a.trigger, channel: a.channel, subject: a.subject ?? null,
+    body: a.body ?? '', delayDays: a.delay_days, active: a.active,
+  }))
+}
+
+/** Create or update the operator's config for one trigger (unique per
+ *  operator+trigger). RLS scopes the write to the caller's operator. */
+export async function upsertAutomation(operatorId: string, input: AutomationInput): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('automations').upsert({
+    operator_id: operatorId,
+    trigger:     input.trigger,
+    channel:     input.channel,
+    subject:     input.channel === 'email' ? (input.subject ?? '') : null,
+    body:        input.body,
+    delay_days:  input.delayDays,
+    active:      input.active,
+    updated_at:  new Date().toISOString(),
+  }, { onConflict: 'operator_id,trigger' })
+  if (error) throw new Error(`save automation: ${error.message}`)
+}
