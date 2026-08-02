@@ -17,6 +17,7 @@ import NotificationTab  from '@/components/operator/NotificationTab'
 import MultiLocationTab from '@/components/operator/MultiLocationTab'
 import SettingsTab      from '@/components/operator/SettingsTab'
 import SessionsTab      from '@/components/operator/SessionsTab'
+import BillingTab       from '@/components/operator/BillingTab'
 import SetupWizard      from '@/components/operator/SetupWizard'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
@@ -26,7 +27,7 @@ import {
   IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
 } from '@liabl/ui'
 
-type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'|'developers'|'branding'|'marketing'
+type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'|'developers'|'branding'|'marketing'|'billing'
 
 const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
 
@@ -180,6 +181,7 @@ export default function OperatorPage() {
     { key:'settings',      label:'Settings',       Icon: IconUserGroup  },
     { key:'branding',      label:'Branding',       Icon: IconTemplate   },
     { key:'marketing',     label:'Marketing',      Icon: IconAuditTrail },
+    { key:'billing',       label:'Billing',        Icon: IconVerified   },
     { key:'developers',    label:'Developers',     Icon: IconRocket     },
   ]
 
@@ -276,6 +278,7 @@ export default function OperatorPage() {
         {tab === 'developers'    && <DevelopersTab />}
         {tab === 'branding'      && <BrandingTab />}
         {tab === 'marketing'     && <MarketingTab />}
+        {tab === 'billing'       && <BillingTab />}
       </div>
     </div>
   )
