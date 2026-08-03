@@ -49,12 +49,53 @@ export async function openBillingPortal(): Promise<void> {
   window.location.href = json.url as string
 }
 
-export interface OperatorBilling { planKey: string; hasCustomer: boolean }
+// ── S2a: Connect (in-person payments) ──────────────────────────────────────
+
+export interface ConnectStatus {
+  accountId:      string | null
+  chargesEnabled: boolean
+  payoutsEnabled: boolean
+  onboarded:      boolean
+}
+
+/** Start/resume Connect onboarding — redirects to Stripe's hosted flow. */
+export async function connectOnboard(): Promise<void> {
+  const res = await fetch('/api/billing/connect/onboard', { method: 'POST' })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok || !json.url) throw new Error(json.error || 'Could not start onboarding.')
+  window.location.href = json.url as string
+}
+
+export async function fetchConnectStatus(): Promise<ConnectStatus> {
+  const res = await fetch('/api/billing/connect/status')
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error || 'Could not load payment status.')
+  return json as ConnectStatus
+}
+
+export interface OperatorBilling {
+  planKey: string
+  hasCustomer: boolean
+  connect: ConnectStatus
+}
 
 export async function fetchOperatorBilling(operatorId: string): Promise<OperatorBilling> {
   const supabase = createClient()
   const { data, error } = await supabase
-    .from('operators').select('plan_key, stripe_customer_id').eq('id', operatorId).maybeSingle()
+    .from('operators')
+    .select('plan_key, stripe_customer_id, stripe_connect_account_id, connect_charges_enabled, connect_payouts_enabled')
+    .eq('id', operatorId).maybeSingle()
   if (error) throw new Error(`load billing: ${error.message}`)
-  return { planKey: data?.plan_key ?? 'free', hasCustomer: !!data?.stripe_customer_id }
+  const charges = !!data?.connect_charges_enabled
+  const payouts = !!data?.connect_payouts_enabled
+  return {
+    planKey: data?.plan_key ?? 'free',
+    hasCustomer: !!data?.stripe_customer_id,
+    connect: {
+      accountId: data?.stripe_connect_account_id ?? null,
+      chargesEnabled: charges,
+      payoutsEnabled: payouts,
+      onboarded: charges && payouts,
+    },
+  }
 }

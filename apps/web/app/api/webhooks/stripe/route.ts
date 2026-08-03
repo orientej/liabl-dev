@@ -14,6 +14,7 @@ import type Stripe from 'stripe'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { stripeConfigured, getStripe } from '@/lib/stripe'
 import { syncSubscription } from '@/lib/stripe-billing'
+import { applyAccountUpdate } from '@/lib/stripe-connect'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -80,6 +81,17 @@ export async function POST(request: NextRequest) {
       case 'invoice.payment_failed': {
         // S1: acknowledged + ledgered. The paired customer.subscription.updated
         // (status past_due) keeps the plan for now; dunning/grace is S3.
+        break
+      }
+      case 'account.updated': {
+        // S2a: an operator's Connect account changed readiness (finished
+        // onboarding, verification cleared/failed). Mirror the capability flags.
+        const acct = event.data.object as Stripe.Account
+        await applyAccountUpdate(admin, {
+          accountId: acct.id,
+          chargesEnabled: !!acct.charges_enabled,
+          payoutsEnabled: !!acct.payouts_enabled,
+        })
         break
       }
       default:

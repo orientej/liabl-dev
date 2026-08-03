@@ -8,8 +8,11 @@ import { createClient } from '@/lib/supabase'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import {
   PLAN_CATALOG, planDisplay, openBillingPortal, fetchOperatorBilling,
+  connectOnboard, fetchConnectStatus, type ConnectStatus,
 } from '@/lib/billing-client'
 import SubscribeDialog from '@/components/operator/SubscribeDialog'
+
+const BLANK_CONNECT: ConnectStatus = { accountId: null, chargesEnabled: false, payoutsEnabled: false, onboarded: false }
 
 export default function BillingTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
@@ -21,6 +24,7 @@ export default function BillingTab() {
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [subscribing, setSubscribing] = useState<{ plan: 'connected' | 'pro'; label: string } | null>(null)
+  const [connect, setConnect] = useState<ConnectStatus>(BLANK_CONNECT)
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
@@ -32,7 +36,7 @@ export default function BillingTab() {
         fetchBillingStatus(createClient(), member.operatorId),
         fetchOperatorBilling(member.operatorId),
       ])
-      setStatus(st); setPlanKey(billing.planKey); setHasCustomer(billing.hasCustomer)
+      setStatus(st); setPlanKey(billing.planKey); setHasCustomer(billing.hasCustomer); setConnect(billing.connect)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load billing')
     } finally { setLoading(false) }
@@ -40,12 +44,27 @@ export default function BillingTab() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  // Reflect the ?billing=success|cancelled hand-back from Stripe.
+  // Reflect the ?billing=success|cancelled hand-back from Stripe, and force a
+  // Connect status refresh when returning from onboarding (?connect=return).
   useEffect(() => {
-    const p = new URLSearchParams(window.location.search).get('billing')
-    if (p === 'success') setNote('Thanks! Your subscription is being activated — it may take a moment to reflect here.')
-    else if (p === 'cancelled') setNote('Checkout cancelled — no changes were made.')
+    const params = new URLSearchParams(window.location.search)
+    const b = params.get('billing')
+    if (b === 'success') setNote('Thanks! Your subscription is being activated — it may take a moment to reflect here.')
+    else if (b === 'cancelled') setNote('Checkout cancelled — no changes were made.')
+    if (params.get('connect') === 'return') { fetchConnectStatus().then(s => setConnect(s)).catch(() => {}) }
   }, [])
+
+  async function setUpPayments() {
+    setBusy('connect'); setError(null)
+    try { await connectOnboard() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not start onboarding'); setBusy(null) }
+  }
+  async function refreshConnect() {
+    setBusy('connect-refresh'); setError(null)
+    try { setConnect(await fetchConnectStatus()) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not refresh status') }
+    finally { setBusy(null) }
+  }
 
   function onSubscribed() {
     setSubscribing(null)
@@ -142,6 +161,56 @@ export default function BillingTab() {
       <p className="text-xs text-gray-400 mt-6">
         Payments are processed by Stripe. Liabl never sees or stores your card details.
       </p>
+
+      <div className="mt-10">
+        <h3 className="font-serif text-xl mb-1" style={{ letterSpacing: '-0.01em' }}>Accept payments in person</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Connect your Stripe account to collect payment from participants during check-in. Funds go
+          directly to your Stripe account and pay out to your bank — Liabl never holds your money.
+        </p>
+
+        <div className="card">
+          {connect.onboarded ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-green-600">✓ Ready to accept payments</div>
+                <div className="text-xs text-gray-500">Your Stripe account is connected and can take payments and receive payouts.</div>
+              </div>
+              <button onClick={refreshConnect} disabled={busy !== null} className="btn-secondary text-sm shrink-0">
+                {busy === 'connect-refresh' ? 'Checking…' : 'Refresh'}
+              </button>
+            </div>
+          ) : connect.accountId ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-amber-600">Setup incomplete</div>
+                <div className="text-xs text-gray-500">
+                  Stripe still needs a few details before you can take payments
+                  {connect.chargesEnabled && !connect.payoutsEnabled ? ' (payouts pending)' : ''}.
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={refreshConnect} disabled={busy !== null} className="btn-secondary text-sm">
+                  {busy === 'connect-refresh' ? 'Checking…' : 'Refresh'}
+                </button>
+                <button onClick={setUpPayments} disabled={busy !== null} className="btn-primary text-sm">
+                  {busy === 'connect' ? 'Opening…' : 'Finish setup'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-ink">Not set up yet</div>
+                <div className="text-xs text-gray-500">Set up payments to start charging at check-in.</div>
+              </div>
+              <button onClick={setUpPayments} disabled={busy !== null} className="btn-primary text-sm shrink-0">
+                {busy === 'connect' ? 'Opening…' : 'Set up payments'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {subscribing && (
         <SubscribeDialog
