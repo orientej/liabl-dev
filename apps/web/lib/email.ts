@@ -233,3 +233,44 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
 }
+
+// ── Stripe payments — S3 branded payment receipt ────────────────────────────
+export interface PaymentReceiptInput {
+  to: string
+  participantName?: string | null
+  operatorName: string
+  amountCents: number
+  currency: string
+  activityLabel?: string | null
+  paidAt: string   // ISO timestamp
+  logoUrl?: string | null
+  primaryColor?: string | null
+}
+
+/** A branded receipt for a successful in-person payment. Server-only (Resend).
+ *  Called best-effort from the payment_intent.succeeded webhook. */
+export async function sendPaymentReceipt(input: PaymentReceiptInput): Promise<void> {
+  const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: input.currency.toUpperCase() }).format(input.amountCents / 100)
+  const dateLabel = new Date(input.paidAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const { error } = await getClient().emails.send({
+    from: FROM_ADDRESS,
+    to: input.to,
+    subject: `Your ${input.operatorName} payment receipt`,
+    html: `
+      <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        ${brandHeaderHtml(input.operatorName, input.logoUrl, input.primaryColor)}
+        <h2 style="font-size: 18px;">Payment received</h2>
+        <p style="font-size: 14px; color:#444; line-height:1.5;">
+          Thanks${input.participantName ? `, ${escapeHtml(firstName(input.participantName))}` : ''}! This confirms your payment to
+          <strong>${escapeHtml(input.operatorName)}</strong>${input.activityLabel ? ` for <strong>${escapeHtml(input.activityLabel)}</strong>` : ''}.
+        </p>
+        <table style="width:100%; font-size:14px; color:#333; margin:16px 0; border-collapse:collapse;">
+          <tr><td style="padding:6px 0; color:#888;">Amount</td><td style="padding:6px 0; text-align:right; font-weight:600;">${amount}</td></tr>
+          <tr><td style="padding:6px 0; color:#888;">Date</td><td style="padding:6px 0; text-align:right;">${dateLabel}</td></tr>
+        </table>
+        <p style="font-size:12px; color:#888;">If you have any questions about this charge, contact ${escapeHtml(input.operatorName)} directly.</p>
+      </div>
+    `,
+  })
+  if (error) throw new Error(`resend receipt: ${error.message}`)
+}

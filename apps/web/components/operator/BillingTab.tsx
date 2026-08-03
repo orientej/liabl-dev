@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import {
   PLAN_CATALOG, planDisplay, openBillingPortal, fetchOperatorBilling,
-  connectOnboard, fetchConnectStatus, fetchPayments, type ConnectStatus, type PaymentsView,
+  connectOnboard, fetchConnectStatus, fetchPayments, refundPayment, type ConnectStatus, type PaymentsView,
 } from '@/lib/billing-client'
 import { formatMoney } from '@/lib/payments-client'
 import SubscribeDialog from '@/components/operator/SubscribeDialog'
@@ -39,6 +39,8 @@ export default function BillingTab() {
   const [subscribing, setSubscribing] = useState<{ plan: 'connected' | 'pro'; label: string } | null>(null)
   const [connect, setConnect] = useState<ConnectStatus>(BLANK_CONNECT)
   const [pay, setPay] = useState<PaymentsView | null>(null)
+  const [confirmRefundId, setConfirmRefundId] = useState<string | null>(null)
+  const [refundingId, setRefundingId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
@@ -80,6 +82,15 @@ export default function BillingTab() {
     try { setConnect(await fetchConnectStatus()) }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not refresh status') }
     finally { setBusy(null) }
+  }
+  async function doRefund(paymentId: string) {
+    setRefundingId(paymentId); setError(null)
+    try {
+      await refundPayment(paymentId)
+      if (operatorId) setPay(await fetchPayments(operatorId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Refund failed')
+    } finally { setRefundingId(null); setConfirmRefundId(null) }
   }
 
   function onSubscribed() {
@@ -233,9 +244,15 @@ export default function BillingTab() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-serif text-xl" style={{ letterSpacing: '-0.01em' }}>Check-in payments</h3>
             {pay && (
-              <div className="text-right">
-                <div className="text-lg font-semibold text-ink">{formatMoney(pay.collectedCents)}</div>
-                <div className="text-xs text-gray-400">collected · {pay.succeededCount} paid</div>
+              <div className="flex gap-6 text-right">
+                <div>
+                  <div className="text-lg font-semibold text-ink">{formatMoney(pay.mtdCents)}</div>
+                  <div className="text-xs text-gray-400">this month</div>
+                </div>
+                <div>
+                  <div className="text-lg font-semibold text-ink">{formatMoney(pay.collectedCents)}</div>
+                  <div className="text-xs text-gray-400">all time · {pay.succeededCount} paid</div>
+                </div>
               </div>
             )}
           </div>
@@ -252,6 +269,7 @@ export default function BillingTab() {
                     <th className="text-left font-medium px-3 py-2">Activity</th>
                     <th className="text-right font-medium px-3 py-2">Amount</th>
                     <th className="text-left font-medium px-3 py-2">Status</th>
+                    <th className="text-right font-medium px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -265,6 +283,20 @@ export default function BillingTab() {
                         <span className={`text-[10px] uppercase border rounded px-1.5 py-0.5 ${PAY_STATUS_STYLE[p.status] ?? 'border-black/10 text-gray-400'}`}>
                           {p.status === 'requires_payment' ? 'unpaid' : p.status}
                         </span>
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        {p.status === 'succeeded' && (
+                          confirmRefundId === p.id ? (
+                            <span className="text-xs">
+                              <button onClick={() => doRefund(p.id)} disabled={refundingId === p.id} className="text-red-600 font-medium mr-2">
+                                {refundingId === p.id ? 'Refunding…' : 'Confirm'}
+                              </button>
+                              <button onClick={() => setConfirmRefundId(null)} disabled={refundingId === p.id} className="text-gray-400">Cancel</button>
+                            </span>
+                          ) : (
+                            <button onClick={() => setConfirmRefundId(p.id)} className="text-xs text-gray-500 hover:text-red-600 underline">Refund</button>
+                          )
+                        )}
                       </td>
                     </tr>
                   ))}

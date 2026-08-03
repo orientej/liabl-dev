@@ -62,3 +62,22 @@ export async function syncSubscription(admin: AdminClient, params: {
 
   return { operatorId: op.id, planKey: plan.key, signatureLimit: plan.signatureLimit }
 }
+
+/** Dunning (S3): a subscription payment failed. Notify the operator to update
+ *  their card. Their plan stays active during the grace window (past_due is an
+ *  entitled status) — this is the nudge, not an interruption. Resolves the
+ *  operator by Stripe customer id. */
+export async function notifyPastDue(admin: AdminClient, customerId: string): Promise<void> {
+  const { data: op } = await admin
+    .from('operators').select('id').eq('stripe_customer_id', customerId).maybeSingle()
+  if (!op) return
+  await admin.from('notifications').insert({
+    operator_id: op.id,
+    type: 'billing_past_due',
+    priority: 'high',
+    title: 'Subscription payment failed',
+    body: 'Your latest subscription payment didn’t go through. Your plan is still active for now — please update your payment method to avoid interruption.',
+    link: '/operator',
+    link_label: 'Manage billing',
+  })
+}

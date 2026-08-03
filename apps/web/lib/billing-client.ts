@@ -114,7 +114,8 @@ export interface PaymentRecord {
 
 export interface PaymentsView {
   payments:         PaymentRecord[]
-  collectedCents:   number   // sum of succeeded payments
+  collectedCents:   number   // all-time sum of succeeded payments
+  mtdCents:         number   // succeeded this calendar month
   succeededCount:   number
 }
 
@@ -138,9 +139,21 @@ export async function fetchPayments(operatorId: string, limit = 100): Promise<Pa
     createdAt: p.created_at,
   }))
   const succeeded = payments.filter(p => p.status === 'succeeded')
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
   return {
     payments,
     collectedCents: succeeded.reduce((sum, p) => sum + p.amountCents, 0),
+    mtdCents: succeeded.filter(p => new Date(p.createdAt).getTime() >= monthStart).reduce((sum, p) => sum + p.amountCents, 0),
     succeededCount: succeeded.length,
   }
+}
+
+/** Refund a succeeded check-in payment (operator-initiated). */
+export async function refundPayment(paymentId: string): Promise<void> {
+  const res = await fetch('/api/payments/refund', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paymentId }),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error || 'Refund failed.')
 }

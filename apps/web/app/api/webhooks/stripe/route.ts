@@ -13,9 +13,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { createAdminClient } from '@/lib/supabase-admin'
 import { stripeConfigured, getStripe } from '@/lib/stripe'
-import { syncSubscription } from '@/lib/stripe-billing'
+import { syncSubscription, notifyPastDue } from '@/lib/stripe-billing'
 import { applyAccountUpdate } from '@/lib/stripe-connect'
-import { markPaymentStatus } from '@/lib/payments'
+import { markPaymentStatus, sendReceiptForPaymentIntent } from '@/lib/payments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -80,8 +80,11 @@ export async function POST(request: NextRequest) {
         break
       }
       case 'invoice.payment_failed': {
-        // S1: acknowledged + ledgered. The paired customer.subscription.updated
-        // (status past_due) keeps the plan for now; dunning/grace is S3.
+        // S3 dunning: notify the operator to update their card. The plan stays
+        // active during past_due (grace) — this is a nudge, not an interruption.
+        const inv = event.data.object as Stripe.Invoice
+        const customerId = typeof inv.customer === 'string' ? inv.customer : inv.customer?.id ?? null
+        if (customerId) await notifyPastDue(admin, customerId)
         break
       }
       case 'account.updated': {
@@ -104,6 +107,17 @@ export async function POST(request: NextRequest) {
         const status = event.type === 'payment_intent.succeeded' ? 'succeeded'
           : event.type === 'payment_intent.canceled' ? 'canceled' : 'failed'
         await markPaymentStatus(admin, pi.id, status)
+        // S3: branded receipt on success (best-effort — never fail the webhook).
+        if (event.type === 'payment_intent.succeeded') {
+          try { await sendReceiptForPaymentIntent(admin, pi.id) } catch { /* logged upstream */ }
+        }
+        break
+      }
+      case 'charge.refunded': {
+        // S3: a payment was refunded (from the console or the Stripe dashboard).
+        const charge = event.data.object as Stripe.Charge
+        const piId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
+        if (piId) await markPaymentStatus(admin, piId, 'refunded')
         break
       }
       default:

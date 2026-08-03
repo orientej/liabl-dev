@@ -15,6 +15,8 @@
 import { createAdminClient } from '@/lib/supabase-admin'
 import { getStripe } from '@/lib/stripe'
 import { applicationFeeCents } from '@/lib/stripe-connect'
+import { fetchBranding } from '@/lib/branding'
+import { sendPaymentReceipt } from '@/lib/email'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -128,9 +130,75 @@ export async function createOrReusePaymentIntent(admin: AdminClient, waiverId: s
 export async function markPaymentStatus(
   admin: AdminClient,
   paymentIntentId: string,
-  status: 'succeeded' | 'failed' | 'canceled'
+  status: 'succeeded' | 'failed' | 'canceled' | 'refunded'
 ): Promise<void> {
   await admin.from('payments')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('stripe_payment_intent_id', paymentIntentId)
+}
+
+export type RefundResult = { ok: true } | { error: string }
+
+/** Refund a succeeded payment. Operator-scoped: the caller must pass the
+ *  operator resolved from their session, and the payment must belong to them.
+ *  Reverses the transfer (pulls funds back from the connected account) and
+ *  returns any application fee. The webhook also confirms via charge.refunded. */
+export async function refundPayment(admin: AdminClient, paymentId: string, operatorId: string): Promise<RefundResult> {
+  const { data: payment } = await admin
+    .from('payments').select('id, operator_id, status, stripe_payment_intent_id').eq('id', paymentId).maybeSingle()
+  if (!payment) return { error: 'Payment not found.' }
+  if (payment.operator_id !== operatorId) return { error: 'Not your payment.' }
+  if (payment.status !== 'succeeded') return { error: 'Only a completed payment can be refunded.' }
+
+  try {
+    await getStripe().refunds.create({
+      payment_intent: payment.stripe_payment_intent_id,
+      reverse_transfer: true,        // pull funds back from the operator's account
+      refund_application_fee: true,  // and return the platform fee (0 by default)
+    })
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Refund failed.' }
+  }
+  await admin.from('payments')
+    .update({ status: 'refunded', updated_at: new Date().toISOString() })
+    .eq('id', paymentId)
+  return { ok: true }
+}
+
+/** Send a branded receipt for a just-succeeded payment. Best-effort: resolves
+ *  the payer's email, the operator's brand, and the activity label, then emails
+ *  a receipt. Idempotent in practice — driven by the once-processed
+ *  payment_intent.succeeded event. */
+export async function sendReceiptForPaymentIntent(admin: AdminClient, paymentIntentId: string): Promise<void> {
+  const { data: payment } = await admin
+    .from('payments')
+    .select('operator_id, participant_id, activity_key, amount_cents, currency, created_at')
+    .eq('stripe_payment_intent_id', paymentIntentId).maybeSingle()
+  if (!payment || !payment.participant_id) return
+
+  const [{ data: participant }, { data: op }, branding] = await Promise.all([
+    admin.from('participants').select('email, full_name').eq('id', payment.participant_id).maybeSingle(),
+    admin.from('operators').select('name').eq('id', payment.operator_id).maybeSingle(),
+    fetchBranding(admin, payment.operator_id),
+  ])
+  if (!participant?.email) return
+
+  let activityLabel: string | null = null
+  if (payment.activity_key) {
+    const { data: activity } = await admin
+      .from('activities').select('display_name').eq('operator_id', payment.operator_id).eq('key', payment.activity_key).maybeSingle()
+    activityLabel = activity?.display_name ?? payment.activity_key
+  }
+
+  await sendPaymentReceipt({
+    to: participant.email,
+    participantName: participant.full_name ?? null,
+    operatorName: op?.name ?? 'Us',
+    amountCents: payment.amount_cents,
+    currency: payment.currency ?? 'usd',
+    activityLabel,
+    paidAt: new Date().toISOString(),
+    logoUrl: branding.logoUrl,
+    primaryColor: branding.primaryColor,
+  })
 }
