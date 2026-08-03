@@ -60,6 +60,7 @@ export interface UpdateActivityInput {
   icon?: string
   accentColor?: string
   baseRiskScore?: number
+  priceCents?: number | null   // S2b: null clears the price (no charge)
 }
 
 export async function updateActivity(activityId: string, input: UpdateActivityInput): Promise<void> {
@@ -70,6 +71,7 @@ export async function updateActivity(activityId: string, input: UpdateActivityIn
   if (input.icon          !== undefined) patch.icon             = input.icon
   if (input.accentColor   !== undefined) patch.accent_color     = input.accentColor
   if (input.baseRiskScore !== undefined) patch.base_risk_score  = input.baseRiskScore
+  if (input.priceCents    !== undefined) patch.price_cents      = input.priceCents
 
   const { error } = await supabase.from('activities').update(patch).eq('id', activityId)
   if (error) throw new Error(`update activity: ${error.message}`)

@@ -50,6 +50,7 @@ export default function ParticipantFlow() {
   const groupMode     = !!reservationId && searchParams.get('group') === '1'
 
   const [step,         setStep]         = useState(0)
+  const [completedWaiverId, setCompletedWaiverId] = useState<string | null>(null)  // S2b: enables the Pay step on confirm
   const [answers,      setAnswers]      = useState<Partial<ParticipantAnswers>>({})
   const [clauses,      setClauses]      = useState<WaiverClause[]>([])
   const [saveState,    setSaveState]    = useState<SaveState>({ kind: 'idle' })
@@ -418,6 +419,10 @@ export default function ParticipantFlow() {
         })
 
       if (waiverError) throw new Error(`waiver insert: ${waiverError.message}`)
+
+      // S2b: the waiver now exists — enable the optional Pay step on the
+      // confirmation screen (the payment routes derive the amount from this id).
+      setCompletedWaiverId(waiverId)
 
       // ── Event 4: waiver.signed ────────────────────────────────────────────
       // First event with a real waiver_id FK. Awaited so the timestamp is
@@ -945,6 +950,10 @@ export default function ParticipantFlow() {
                 // Shared reservation check-in on a kiosk: make it obvious the
                 // next walk-up can sign on the same device.
                 restartLabel={reservationId && !memberToken ? 'Check in the next person' : undefined}
+                // S2b: optional in-person payment (only shows if the activity
+                // has a price and the operator has payments set up).
+                waiverId={completedWaiverId}
+                accent={branding.primaryColor ?? undefined}
               />
             )}
             {step === 8 && checkInCtx && (

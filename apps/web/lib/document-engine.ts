@@ -69,6 +69,7 @@ export interface ActivityRecord {
   baseRiskScore: number
   subtitle:      string | null
   published:     boolean
+  priceCents:    number | null   // null = no charge (S2b in-person payments)
 }
 
 export interface QuestionRecord {
@@ -257,7 +258,7 @@ export async function fetchEngineData(
 
   let activitiesQuery = supabase
     .from('activities')
-    .select('id, key, display_name, icon, accent_color, base_risk_score, subtitle, published')
+    .select('id, key, display_name, icon, accent_color, base_risk_score, subtitle, published, price_cents')
     .eq('operator_id', operator.id)
     .order('sort_order')
   if (!options.includeUnpublished) {
@@ -295,6 +296,7 @@ export async function fetchEngineData(
     baseRiskScore: r.base_risk_score,
     subtitle:      r.subtitle ?? null,
     published:     r.published,
+    priceCents:    r.price_cents ?? null,
   }))
 
   const clauses: ClauseRow[] = (clauseRows ?? []).map((r: any) => ({

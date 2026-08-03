@@ -297,20 +297,30 @@ function ActivityEditor({ activity, onSaved, onDeleted, onBusy, onError, busy }:
   const [icon, setIcon] = useState(activity.icon)
   const [color, setColor] = useState(activity.accentColor)
   const [baseRisk, setBaseRisk] = useState(activity.baseRiskScore)
+  const [price, setPrice] = useState(activity.priceCents != null ? (activity.priceCents / 100).toFixed(2) : '')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     setDisplayName(activity.displayName); setSubtitle(activity.subtitle ?? '')
     setIcon(activity.icon); setColor(activity.accentColor); setBaseRisk(activity.baseRiskScore)
+    setPrice(activity.priceCents != null ? (activity.priceCents / 100).toFixed(2) : '')
     setEditing(false); setConfirmDelete(false)
   }, [activity.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function priceToCents(s: string): number | null {
+    const t = s.trim()
+    if (!t) return null                 // empty = no charge
+    const n = Number(t)
+    if (!Number.isFinite(n) || n < 0) return null
+    return Math.round(n * 100)
+  }
 
   const Icon = getActivityIcon(icon)
 
   async function save() {
     onBusy(true)
     try {
-      await updateActivity(activity.id, { displayName: displayName.trim(), subtitle: subtitle.trim() || null, icon, accentColor: color, baseRiskScore: baseRisk })
+      await updateActivity(activity.id, { displayName: displayName.trim(), subtitle: subtitle.trim() || null, icon, accentColor: color, baseRiskScore: baseRisk, priceCents: priceToCents(price) })
       await onSaved()
       setEditing(false)
     } catch (e) {
@@ -353,7 +363,7 @@ function ActivityEditor({ activity, onSaved, onDeleted, onBusy, onError, busy }:
           {!editing ? (
             <div>
               <div className="font-semibold text-ink">{activity.displayName}</div>
-              <div className="text-xs text-gray-400">{activity.subtitle ?? 'No subtitle'} · Base risk {activity.baseRiskScore}</div>
+              <div className="text-xs text-gray-400">{activity.subtitle ?? 'No subtitle'} · Base risk {activity.baseRiskScore}{activity.priceCents != null ? ` · $${(activity.priceCents / 100).toFixed(2)} at check-in` : ''}</div>
             </div>
           ) : (
             <div className="text-sm text-gray-400">Editing…</div>
@@ -395,6 +405,15 @@ function ActivityEditor({ activity, onSaved, onDeleted, onBusy, onError, busy }:
             <div>
               <label className="block text-xs text-gray-500 mb-1">Base risk score</label>
               <input type="number" min={0} max={100} className="form-input" value={baseRisk} onChange={e => setBaseRisk(Number(e.target.value))} />
+            </div>
+          </div>
+          <div className="mb-3">
+            <label className="block text-xs text-gray-500 mb-1">Check-in price (optional)</label>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400 text-sm">$</span>
+              <input type="number" min={0} step="0.01" placeholder="0.00" className="form-input" style={{ maxWidth: 140 }}
+                value={price} onChange={e => setPrice(e.target.value)} />
+              <span className="text-xs text-gray-400">Leave blank for no charge. Participants pay this at check-in (requires payments set up in Billing).</span>
             </div>
           </div>
           <div className="flex gap-2">

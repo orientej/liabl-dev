@@ -15,6 +15,7 @@ import { createAdminClient } from '@/lib/supabase-admin'
 import { stripeConfigured, getStripe } from '@/lib/stripe'
 import { syncSubscription } from '@/lib/stripe-billing'
 import { applyAccountUpdate } from '@/lib/stripe-connect'
+import { markPaymentStatus } from '@/lib/payments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -92,6 +93,17 @@ export async function POST(request: NextRequest) {
           chargesEnabled: !!acct.charges_enabled,
           payoutsEnabled: !!acct.payouts_enabled,
         })
+        break
+      }
+      case 'payment_intent.succeeded':
+      case 'payment_intent.payment_failed':
+      case 'payment_intent.canceled': {
+        // S2b: in-person participant payment reached a terminal state. Reflect
+        // it on the payments row (keyed by the PaymentIntent id).
+        const pi = event.data.object as Stripe.PaymentIntent
+        const status = event.type === 'payment_intent.succeeded' ? 'succeeded'
+          : event.type === 'payment_intent.canceled' ? 'canceled' : 'failed'
+        await markPaymentStatus(admin, pi.id, status)
         break
       }
       default:
