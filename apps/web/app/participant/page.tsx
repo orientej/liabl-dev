@@ -11,6 +11,7 @@
 
 import { Suspense } from 'react'
 import ParticipantFlow from './ParticipantFlow'
+import ServiceWorkerRegister from '@/components/participant/ServiceWorkerRegister'
 
 // Skeleton shown briefly before the client component hydrates. Matches the
 // general visual shape of the participant flow (surface background, centered
@@ -35,8 +36,11 @@ function ParticipantSkeleton() {
 
 export default function ParticipantPage() {
   return (
-    <Suspense fallback={<ParticipantSkeleton />}>
-      <ParticipantFlow />
-    </Suspense>
+    <>
+      <ServiceWorkerRegister />
+      <Suspense fallback={<ParticipantSkeleton />}>
+        <ParticipantFlow />
+      </Suspense>
+    </>
   )
 }

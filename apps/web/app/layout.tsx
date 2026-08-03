@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { DM_Sans, Syne, JetBrains_Mono } from 'next/font/google'
 import '@liabl/ui/globals.css'
 
@@ -9,6 +9,13 @@ const mono   = JetBrains_Mono({ subsets:['latin'], variable:'--font-mono', weigh
 export const metadata: Metadata = {
   title: 'LIABL — Think faster. Decide better.',
   description: 'The modern document layer that bridges information, action, and intelligence.',
+  // On-site check-in PWA (the manifest is auto-linked from app/manifest.ts).
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Liabl' },
+  icons: { icon: '/icon-192.png', apple: '/apple-touch-icon.png' },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#4B2ACF',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
