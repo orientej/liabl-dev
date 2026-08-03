@@ -22,6 +22,8 @@ import { createClient as createAnonSupabase } from '@/lib/supabase-anon'
 import { PageNav } from '@liabl/ui'
 import BrandStyle from '@/components/BrandStyle'
 import { fetchBranding, EMPTY_BRANDING, type Branding } from '@/lib/branding'
+import { putEngine, getEngine, enqueue, outboxCount, type QueuedCheckIn } from '@/lib/offline-store'
+import { syncOutbox } from '@/lib/offline-sync'
 
 const ADULT_STEPS = ['Identity','Activity','Health','Review','Sign']
 const MINOR_STEPS = ['Identity','Activity','Health','Guardian','Review','Sign']
@@ -51,6 +53,8 @@ export default function ParticipantFlow() {
 
   const [step,         setStep]         = useState(0)
   const [completedWaiverId, setCompletedWaiverId] = useState<string | null>(null)  // S2b: enables the Pay step on confirm
+  const [offlineSaved, setOfflineSaved] = useState(false)   // P1b: this check-in was queued offline
+  const [outboxWaiting, setOutboxWaiting] = useState(0)     // P1b: queued check-ins awaiting sync
   const [answers,      setAnswers]      = useState<Partial<ParticipantAnswers>>({})
   const [clauses,      setClauses]      = useState<WaiverClause[]>([])
   const [saveState,    setSaveState]    = useState<SaveState>({ kind: 'idle' })
@@ -224,13 +228,38 @@ export default function ParticipantFlow() {
           allowDemoFallback: isDemoVisit,
         })
         setEngineData(data)
+        // P1b: cache this session's config so the flow can still render offline.
+        putEngine(sessionId, { engineData: data, cachedAt: Date.now() })
       } catch (err) {
-        console.error('[ParticipantFlow] engine data load failed:', err)
-        setEngineError(err instanceof Error ? err.message : 'Failed to load activities')
+        // P1b: offline (or a load failure) — fall back to a cached copy of this
+        // session's config so an on-site check-in can still be completed and
+        // queued for sync. Only surface the error if there's no cache.
+        const cached = await getEngine(sessionId)
+        if (cached?.engineData) {
+          setEngineData(cached.engineData)
+        } else {
+          console.error('[ParticipantFlow] engine data load failed:', err)
+          setEngineError(err instanceof Error ? err.message : 'Failed to load activities')
+        }
       }
     }
     loadEngineData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // P1b: drain the offline outbox on launch and whenever connectivity returns,
+  // so check-ins signed offline sync (insert + seal + email) automatically.
+  useEffect(() => {
+    let cancelled = false
+    const drain = async () => {
+      const r = await syncOutbox()
+      if (!cancelled) setOutboxWaiting(r.remaining)
+    }
+    outboxCount().then(n => { if (!cancelled) setOutboxWaiting(n) })
+    if (typeof navigator === 'undefined' || navigator.onLine) drain()
+    const onOnline = () => drain()
+    window.addEventListener('online', onOnline)
+    return () => { cancelled = true; window.removeEventListener('online', onOnline) }
+  }, [])
 
   function resumeDraft() {
     if (!draftPrompt) return
@@ -321,6 +350,54 @@ export default function ParticipantFlow() {
       // soft warning here the way it is in next(); there's nothing valid
       // to save without it.
       setSaveState({ kind: 'retryable_error', attempts: 1, lastError: 'Activity data not loaded yet' })
+      return
+    }
+
+    // P1b — OFFLINE PATH. No network: queue the completed check-in on this
+    // device (IndexedDB) and confirm immediately. lib/offline-sync replays it
+    // (insert + seal + email) the moment connectivity returns, idempotent on
+    // the client-generated waiverId. The online path below is untouched.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      const full = answers as ParticipantAnswers
+      const waiverId = crypto.randomUUID()
+      const rec: QueuedCheckIn = {
+        waiverId,
+        operatorId:   engineData.operatorId,
+        operatorName: engineData.operatorName,
+        sessionId,
+        activityKey:  full.activityKey,
+        activityLabel: labels[full.activityKey] ?? full.activityKey,
+        answers:      full,
+        clauses,
+        signatureData: sigData,
+        signedAt:     new Date().toISOString(),
+        ipAddress:    ipAddressRef.current,
+        reservationId: reservationId ?? null,
+        memberToken:  memberToken ?? null,
+        marketingEmailConsent: !!full.marketingEmailConsent,
+        marketingSmsConsent:   !!full.marketingSmsConsent,
+        phone:        full.phone ?? null,
+        queuedAt:     Date.now(),
+      }
+      try {
+        await enqueue(rec)
+        setCompletedWaiverId(waiverId)
+        setPendingSignature(null)
+        setOfflineSaved(true)
+        setSaveState({ kind: 'idle' })
+        clearDraft(sessionId)
+        outboxCount().then(setOutboxWaiting)
+        if (groupMode) {
+          const nextCount = groupSignedCount + 1
+          setGroupSignedCount(nextCount)
+          saveGroupProgress(sessionId, { signedCount: nextCount, target: groupTarget })
+          setGroupView('interstitial')
+        } else {
+          setStep(7)
+        }
+      } catch {
+        setSaveState({ kind: 'retryable_error', attempts: 1, lastError: 'Could not save on this device. Please try again.' })
+      }
       return
     }
 
@@ -767,6 +844,11 @@ export default function ParticipantFlow() {
         operatorAccent={branding.primaryColor ?? '#4B2ACF'}
         logoUrl={branding.logoUrl ?? undefined}
       />
+      {outboxWaiting > 0 && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center px-4 py-2">
+          {outboxWaiting} check-in{outboxWaiting === 1 ? '' : 's'} saved on this device — {typeof navigator !== 'undefined' && navigator.onLine ? 'syncing…' : 'will sync when back online.'}
+        </div>
+      )}
       <div className="flex-1 flex flex-col items-center px-4 py-8">
         <div className="w-full max-w-lg">
           {!checkedDraft ? null : engineError ? (
@@ -952,8 +1034,11 @@ export default function ParticipantFlow() {
                 restartLabel={reservationId && !memberToken ? 'Check in the next person' : undefined}
                 // S2b: optional in-person payment (only shows if the activity
                 // has a price and the operator has payments set up).
-                waiverId={completedWaiverId}
+                // P1b: when saved offline, payment + "emailed" copy don't apply
+                // yet — the confirm screen shows a "will sync" message instead.
+                waiverId={offlineSaved ? null : completedWaiverId}
                 accent={branding.primaryColor ?? undefined}
+                offline={offlineSaved}
               />
             )}
             {step === 8 && checkInCtx && (

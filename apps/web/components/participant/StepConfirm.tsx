@@ -12,9 +12,10 @@ interface Props {
   restartLabel?: string
   waiverId?: string | null   // S2b: enables the optional Pay step when set
   accent?: string
+  offline?: boolean          // P1b: saved offline — will sync when reconnected
 }
 
-export default function StepConfirm({ answers, labels, onRestart, restartLabel, waiverId, accent }: Props) {
+export default function StepConfirm({ answers, labels, onRestart, restartLabel, waiverId, accent, offline }: Props) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const firstName = answers.fullName?.split(' ')[0] ?? 'there'
 
@@ -24,7 +25,11 @@ export default function StepConfirm({ answers, labels, onRestart, restartLabel, 
         <IconVerified size={32} color="#15803D"/>
       </div>
       <h2 className="font-serif text-2xl mb-2" style={{letterSpacing:'-0.01em'}}>You&apos;re all set, {firstName}.</h2>
-      <p className="text-gray-500 text-sm mb-6">Your signed waiver has been recorded and emailed to <span className="text-ink font-medium">{answers.email}</span>.</p>
+      {offline ? (
+        <p className="text-gray-500 text-sm mb-6">Your signed waiver is <span className="text-ink font-medium">saved on this device</span> and will sync &mdash; and email a copy to <span className="text-ink font-medium">{answers.email}</span> &mdash; automatically once you&apos;re back online.</p>
+      ) : (
+        <p className="text-gray-500 text-sm mb-6">Your signed waiver has been recorded and emailed to <span className="text-ink font-medium">{answers.email}</span>.</p>
+      )}
       <div className="flex flex-wrap gap-2 justify-center mb-6">
         {[`Signed at ${time}`,labels[answers.activityKey]??'Activity','ESIGN compliant','LIABL Pass ✦'].map(tag=>(
           <span key={tag} className="bg-surface border border-black/10 text-xs px-3 py-1.5 rounded-full text-gray-500">{tag}</span>
