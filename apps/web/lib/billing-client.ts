@@ -99,3 +99,48 @@ export async function fetchOperatorBilling(operatorId: string): Promise<Operator
     },
   }
 }
+
+// ── S2c: in-person payments list ───────────────────────────────────────────
+
+export interface PaymentRecord {
+  id:              string
+  amountCents:     number
+  currency:        string
+  status:          string
+  activityKey:     string | null
+  participantName: string | null
+  createdAt:       string
+}
+
+export interface PaymentsView {
+  payments:         PaymentRecord[]
+  collectedCents:   number   // sum of succeeded payments
+  succeededCount:   number
+}
+
+/** The operator's recent check-in payments (RLS-scoped) + simple totals. */
+export async function fetchPayments(operatorId: string, limit = 100): Promise<PaymentsView> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('payments')
+    .select('id, amount_cents, currency, status, activity_key, created_at, participants(full_name)')
+    .eq('operator_id', operatorId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(`load payments: ${error.message}`)
+  const payments: PaymentRecord[] = (data ?? []).map((p: any) => ({
+    id: p.id,
+    amountCents: p.amount_cents,
+    currency: p.currency ?? 'usd',
+    status: p.status,
+    activityKey: p.activity_key ?? null,
+    participantName: (Array.isArray(p.participants) ? p.participants[0] : p.participants)?.full_name ?? null,
+    createdAt: p.created_at,
+  }))
+  const succeeded = payments.filter(p => p.status === 'succeeded')
+  return {
+    payments,
+    collectedCents: succeeded.reduce((sum, p) => sum + p.amountCents, 0),
+    succeededCount: succeeded.length,
+  }
+}

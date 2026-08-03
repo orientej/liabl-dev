@@ -8,11 +8,24 @@ import { createClient } from '@/lib/supabase'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import {
   PLAN_CATALOG, planDisplay, openBillingPortal, fetchOperatorBilling,
-  connectOnboard, fetchConnectStatus, type ConnectStatus,
+  connectOnboard, fetchConnectStatus, fetchPayments, type ConnectStatus, type PaymentsView,
 } from '@/lib/billing-client'
+import { formatMoney } from '@/lib/payments-client'
 import SubscribeDialog from '@/components/operator/SubscribeDialog'
 
 const BLANK_CONNECT: ConnectStatus = { accountId: null, chargesEnabled: false, payoutsEnabled: false, onboarded: false }
+
+const PAY_STATUS_STYLE: Record<string, string> = {
+  succeeded:        'border-green-200 text-green-600',
+  requires_payment: 'border-amber-200 text-amber-600',
+  failed:           'border-red-200 text-red-600',
+  canceled:         'border-black/10 text-gray-400',
+  refunded:         'border-blue-200 text-blue-600',
+}
+
+function fmtDate(s: string): string {
+  return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 export default function BillingTab() {
   const [operatorId, setOperatorId] = useState<string | null>(null)
@@ -25,6 +38,7 @@ export default function BillingTab() {
   const [note, setNote] = useState<string | null>(null)
   const [subscribing, setSubscribing] = useState<{ plan: 'connected' | 'pro'; label: string } | null>(null)
   const [connect, setConnect] = useState<ConnectStatus>(BLANK_CONNECT)
+  const [pay, setPay] = useState<PaymentsView | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null)
@@ -37,6 +51,8 @@ export default function BillingTab() {
         fetchOperatorBilling(member.operatorId),
       ])
       setStatus(st); setPlanKey(billing.planKey); setHasCustomer(billing.hasCustomer); setConnect(billing.connect)
+      // Payments list is best-effort — never let it block the rest of the tab.
+      fetchPayments(member.operatorId).then(setPay).catch(() => setPay(null))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load billing')
     } finally { setLoading(false) }
@@ -211,6 +227,53 @@ export default function BillingTab() {
           )}
         </div>
       </div>
+
+      {(connect.accountId || (pay && pay.payments.length > 0)) && (
+        <div className="mt-10">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-serif text-xl" style={{ letterSpacing: '-0.01em' }}>Check-in payments</h3>
+            {pay && (
+              <div className="text-right">
+                <div className="text-lg font-semibold text-ink">{formatMoney(pay.collectedCents)}</div>
+                <div className="text-xs text-gray-400">collected · {pay.succeededCount} paid</div>
+              </div>
+            )}
+          </div>
+
+          {!pay || pay.payments.length === 0 ? (
+            <div className="card text-sm text-gray-400">No check-in payments yet. Set a price on an activity in Templates to start charging.</div>
+          ) : (
+            <div className="border border-black/10 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-surface text-gray-500 text-xs">
+                  <tr>
+                    <th className="text-left font-medium px-3 py-2">Date</th>
+                    <th className="text-left font-medium px-3 py-2">Participant</th>
+                    <th className="text-left font-medium px-3 py-2">Activity</th>
+                    <th className="text-right font-medium px-3 py-2">Amount</th>
+                    <th className="text-left font-medium px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pay.payments.map(p => (
+                    <tr key={p.id} className="border-t border-black/5">
+                      <td className="px-3 py-2 text-gray-400">{fmtDate(p.createdAt)}</td>
+                      <td className="px-3 py-2 text-ink">{p.participantName ?? '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{p.activityKey ?? '—'}</td>
+                      <td className="px-3 py-2 text-right text-ink">{formatMoney(p.amountCents, p.currency)}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] uppercase border rounded px-1.5 py-0.5 ${PAY_STATUS_STYLE[p.status] ?? 'border-black/10 text-gray-400'}`}>
+                          {p.status === 'requires_payment' ? 'unpaid' : p.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {subscribing && (
         <SubscribeDialog
