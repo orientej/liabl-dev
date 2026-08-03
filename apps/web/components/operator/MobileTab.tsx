@@ -156,6 +156,66 @@ export default function MobileTab() {
         <div><h1 className="font-serif text-2xl" style={{letterSpacing:'-0.01em'}}>LIABL mobile app</h1><p className="text-sm text-gray-400 mt-1">iOS, Android & Windows · install as an app + interactive wireframes</p></div>
         <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Offline mode:</span><button onClick={()=>setIsOffline(!isOffline)} className={`w-11 h-6 rounded-full transition-all relative ${isOffline?'bg-amber-500':'bg-gray-200'}`}><span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all" style={{left:isOffline?'22px':'2px'}}/></button></div>
       </div>
+
+      {/* Install the app on a device (real PWA — no app store needed) */}
+      <div className="mb-8 bg-white rounded-2xl border border-black/10 p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Smartphone size={16} className="text-brand"/>
+          <h3 className="font-semibold text-ink">Install the app on a device</h3>
+        </div>
+        <p className="text-sm text-gray-500 mb-3">
+          The check-in app installs straight from your check-in page — no app store needed. Open your check-in link{' '}
+          {checkInUrl
+            ? <>(<span className="font-mono text-xs text-ink">{checkInUrl}</span>)</>
+            : <>(the same link or QR your participants use)</>}{' '}
+          on the device, then follow the steps for its platform.
+        </p>
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5">
+          Tip: open the app once while online first — that caches the session so it keeps working even if the signal drops.
+        </p>
+
+        <div className="grid sm:grid-cols-3 gap-4">
+          {[
+            { title:'iPhone / iPad', sub:'Use Safari', steps:[
+              'Open your check-in link in Safari (it must be Safari on iPhone/iPad).',
+              'Tap the Share icon (the square with an up arrow) in the toolbar.',
+              'Scroll down and tap "Add to Home Screen."',
+              'Tap Add — the Liabl icon appears on the home screen.',
+            ]},
+            { title:'Android phone/tablet', sub:'Use Chrome', steps:[
+              'Open your check-in link in Chrome.',
+              'Tap the three-dot menu (⋮) at the top-right.',
+              'Tap "Add to Home screen" (or "Install app").',
+              'Tap Install — the Liabl icon appears with your other apps.',
+            ]},
+            { title:'Windows tablet', sub:'Use Edge or Chrome', steps:[
+              'Open your check-in link in Microsoft Edge (or Chrome).',
+              'Click the Install icon at the right of the address bar — or the ⋯ menu → Apps → "Install this site as an app."',
+              'Click Install — it pins to the Start menu / taskbar and opens in its own window.',
+            ]},
+          ].map(card=>(
+            <div key={card.title} className="border border-black/10 rounded-xl p-4">
+              <div className="mb-3">
+                <div className="font-semibold text-ink text-sm">{card.title}</div>
+                <div className="text-xs text-gray-400">{card.sub}</div>
+              </div>
+              <ol className="space-y-2">
+                {card.steps.map((s,i)=>(
+                  <li key={i} className="flex gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-brand/10 text-brand text-xs font-semibold flex items-center justify-center shrink-0">{i+1}</span>
+                    <span className="text-xs text-gray-600 leading-relaxed">{s}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xs text-gray-400 mt-4">
+          Once installed, it launches full-screen like a native app and works offline. To update, staff just reopen it — new versions load automatically.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         <div className="flex flex-col items-center">
           <Phone isOffline={isOffline}>
@@ -217,65 +277,6 @@ export default function MobileTab() {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Install the app on a device (real PWA — no app store needed) */}
-      <div className="mt-8 bg-white rounded-2xl border border-black/10 p-5">
-        <div className="flex items-center gap-2 mb-1">
-          <Smartphone size={16} className="text-brand"/>
-          <h3 className="font-semibold text-ink">Install the app on a device</h3>
-        </div>
-        <p className="text-sm text-gray-500 mb-3">
-          The check-in app installs straight from your check-in page — no app store needed. Open your check-in link{' '}
-          {checkInUrl
-            ? <>(<span className="font-mono text-xs text-ink">{checkInUrl}</span>)</>
-            : <>(the same link or QR your participants use)</>}{' '}
-          on the device, then follow the steps for its platform.
-        </p>
-        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5">
-          Tip: open the app once while online first — that caches the session so it keeps working even if the signal drops.
-        </p>
-
-        <div className="grid sm:grid-cols-3 gap-4">
-          {[
-            { title:'iPhone / iPad', sub:'Use Safari', steps:[
-              'Open your check-in link in Safari (it must be Safari on iPhone/iPad).',
-              'Tap the Share icon (the square with an up arrow) in the toolbar.',
-              'Scroll down and tap "Add to Home Screen."',
-              'Tap Add — the Liabl icon appears on the home screen.',
-            ]},
-            { title:'Android phone/tablet', sub:'Use Chrome', steps:[
-              'Open your check-in link in Chrome.',
-              'Tap the three-dot menu (⋮) at the top-right.',
-              'Tap "Add to Home screen" (or "Install app").',
-              'Tap Install — the Liabl icon appears with your other apps.',
-            ]},
-            { title:'Windows tablet', sub:'Use Edge or Chrome', steps:[
-              'Open your check-in link in Microsoft Edge (or Chrome).',
-              'Click the Install icon at the right of the address bar — or the ⋯ menu → Apps → "Install this site as an app."',
-              'Click Install — it pins to the Start menu / taskbar and opens in its own window.',
-            ]},
-          ].map(card=>(
-            <div key={card.title} className="border border-black/10 rounded-xl p-4">
-              <div className="mb-3">
-                <div className="font-semibold text-ink text-sm">{card.title}</div>
-                <div className="text-xs text-gray-400">{card.sub}</div>
-              </div>
-              <ol className="space-y-2">
-                {card.steps.map((s,i)=>(
-                  <li key={i} className="flex gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-brand/10 text-brand text-xs font-semibold flex items-center justify-center shrink-0">{i+1}</span>
-                    <span className="text-xs text-gray-600 leading-relaxed">{s}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          ))}
-        </div>
-
-        <p className="text-xs text-gray-400 mt-4">
-          Once installed, it launches full-screen like a native app and works offline (see above). To update, staff just reopen it — new versions load automatically.
-        </p>
       </div>
     </div>
   )
