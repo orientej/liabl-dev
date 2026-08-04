@@ -88,6 +88,16 @@ export async function removeUser(memberId: string): Promise<void> {
   if (!res.ok) throw new Error(body.error ?? 'Failed to remove user')
 }
 
+/** Clear every MFA factor (and remembered devices) for a user — the
+ * lost-authenticator recovery path. The user must re-enroll on next
+ * sign-in. Returns how many factors were removed. */
+export async function clearUserMfa(memberId: string): Promise<{ factorsCleared: number }> {
+  const res = await fetch(`/api/admin/users/${memberId}/mfa`, { method: 'DELETE' })
+  const body = await res.json()
+  if (!res.ok) throw new Error(body.error ?? 'Failed to clear MFA')
+  return { factorsCleared: body.factorsCleared ?? 0 }
+}
+
 export interface PlatformOverview {
   totalOperators: number
   activeOperators: number

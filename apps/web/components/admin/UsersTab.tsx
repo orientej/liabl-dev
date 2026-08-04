@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { fetchUsers, updateUserRole, removeUser, type AdminUser } from '@/lib/admin'
+import { fetchUsers, updateUserRole, removeUser, clearUserMfa, type AdminUser } from '@/lib/admin'
 import { getCurrentAdmin } from '@/lib/admin-auth'
 
 export default function UsersTab() {
@@ -10,6 +10,8 @@ export default function UsersTab() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
+  const [confirmMfaId, setConfirmMfaId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [adminId, setAdminId] = useState<string | null>(null)
   const [adminEmail, setAdminEmail] = useState<string | null>(null)
@@ -56,6 +58,25 @@ export default function UsersTab() {
       await refresh()
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to remove user')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function confirmedClearMfa(u: AdminUser) {
+    setBusyId(u.id)
+    setActionError(null)
+    setNotice(null)
+    try {
+      const { factorsCleared } = await clearUserMfa(u.id)
+      setConfirmMfaId(null)
+      setNotice(
+        factorsCleared > 0
+          ? `Cleared ${factorsCleared} verification method${factorsCleared === 1 ? '' : 's'} for ${u.email ?? 'the user'}. They’ll set up two-factor again on their next sign-in.`
+          : `${u.email ?? 'The user'} had no verification methods enrolled. Any remembered devices were also cleared.`
+      )
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to clear MFA')
     } finally {
       setBusyId(null)
     }
@@ -117,6 +138,13 @@ export default function UsersTab() {
         </div>
       )}
 
+      {notice && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 text-xs text-green-700 flex justify-between gap-2">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} className="shrink-0">×</button>
+        </div>
+      )}
+
       <input className="form-input mb-4" placeholder="Search by email or organization…" value={search} onChange={e => setSearch(e.target.value)} />
 
       <div className="space-y-2">
@@ -154,13 +182,24 @@ export default function UsersTab() {
                 <option value="staff">Staff</option>
                 <option value="owner">Owner</option>
               </select>
+              {confirmMfaId === u.id ? (
+                <span className="flex items-center gap-1 text-xs" title="Removes all two-factor methods and remembered devices; the user re-enrolls at next sign-in">
+                  <span className="text-gray-500">Clear 2FA?</span>
+                  <button onClick={() => confirmedClearMfa(u)} disabled={busyId === u.id} className="text-amber-700 font-medium underline">{busyId === u.id ? 'Clearing…' : 'Confirm'}</button>
+                  <button onClick={() => setConfirmMfaId(null)} className="text-gray-400 underline">Cancel</button>
+                </span>
+              ) : (
+                <button onClick={() => { setConfirmMfaId(u.id); setConfirmRemoveId(null) }}
+                  title="Reset this user's two-factor authentication (lost-authenticator recovery)"
+                  className="text-xs text-gray-500 hover:text-ink underline">Clear MFA</button>
+              )}
               {confirmRemoveId === u.id ? (
                 <span className="flex items-center gap-1 text-xs">
                   <button onClick={() => confirmedRemove(u)} disabled={busyId === u.id} className="text-red-700 font-medium underline">Confirm</button>
                   <button onClick={() => setConfirmRemoveId(null)} className="text-gray-400 underline">Cancel</button>
                 </span>
               ) : (
-                <button onClick={() => setConfirmRemoveId(u.id)} className="text-xs text-red-500 hover:text-red-700 underline">Remove</button>
+                <button onClick={() => { setConfirmRemoveId(u.id); setConfirmMfaId(null) }} className="text-xs text-red-500 hover:text-red-700 underline">Remove</button>
               )}
             </div>
           </div>
