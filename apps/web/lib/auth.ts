@@ -51,6 +51,37 @@ export async function signOut(): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+/** Send a password-reset email. The link in it lands the user on
+ * /operator/reset-password with a short-lived recovery session, where
+ * updatePassword() below finishes the job. There is no separate
+ * "username" to recover — the email address is the identity — so this
+ * one flow covers both "forgot password" and "forgot username".
+ *
+ * Note: the redirect target must be allow-listed in Supabase Auth
+ * (URL Configuration → Redirect URLs) or the link will be rejected. We
+ * always resolve the origin from the running page rather than hardcoding
+ * it, so preview and production each send users back to themselves. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const supabase = createClient()
+  const redirectTo =
+    typeof window !== 'undefined' ? `${window.location.origin}/operator/reset-password` : undefined
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
+  // Deliberately do NOT surface "no such user" style errors to the caller
+  // beyond Supabase's own generic message — enumerating which emails have
+  // accounts is an information leak. Supabase already returns success for
+  // unknown addresses; we just propagate any genuine transport error.
+  if (error) throw new Error(error.message)
+}
+
+/** Set a new password for the currently-authenticated (or recovery)
+ * session. Used both by the reset-password page and by the in-app
+ * "change password" control in account settings. */
+export async function updatePassword(newPassword: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw new Error(error.message)
+}
+
 /** Null means: logged in, but no operator_members row yet — caller
  * should route to setup, not the dashboard. Also null if not logged in
  * at all; callers that need to distinguish those two cases should check

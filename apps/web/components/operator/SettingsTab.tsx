@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { fetchEngineData } from '@/lib/document-engine'
 import { getCurrentOperatorMember, updateOperatorProfile, type CurrentOperatorMember } from '@/lib/auth'
 import { listTeamMembers, listInvites, createInvite, revokeInvite, type TeamMember, type Invite } from '@/lib/invites'
+import SecurityPanel from '@/components/operator/SecurityPanel'
 
 const US_STATES = [
   'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia',
@@ -149,6 +150,9 @@ export default function SettingsTab({ onNavigateToSessions }: { onNavigateToSess
           </div>
         )}
       </div>
+
+      {/* Account security — password + two-factor */}
+      <SecurityPanel />
 
       {/* Participant sign-in page */}
       <ParticipantUrlCard onNavigateToSessions={onNavigateToSessions} />

@@ -34,7 +34,28 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_OPERATOR_PATHS = ['/operator/login', '/operator/impersonate']
+const PUBLIC_OPERATOR_PATHS = ['/operator/login', '/operator/impersonate', '/operator/reset-password']
+
+/**
+ * Read the `aal` (authenticator assurance level) claim out of a Supabase
+ * access token without verifying its signature. Safe here: the token was
+ * just refreshed and validated by getUser() before this runs, and we only
+ * branch on whether the session has stepped up to two-factor ('aal2') —
+ * we never trust it for authorization, only to decide whether to send the
+ * user through the MFA gate. Returns null on any malformed token.
+ */
+function readAal(accessToken: string): string | null {
+  try {
+    const payload = accessToken.split('.')[1]
+    if (!payload) return null
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const json = JSON.parse(atob(padded)) as { aal?: unknown }
+    return typeof json.aal === 'string' ? json.aal : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * Origin (scheme + host) of a configured URL, or null when unset or
@@ -176,6 +197,24 @@ export async function middleware(request: NextRequest) {
     const redirectUrl = new URL('/operator/login', request.url)
     redirectUrl.searchParams.set('redirectedFrom', path)
     return NextResponse.redirect(redirectUrl)
+  }
+
+  // MFA is required for every operator user. A logged-in session that has
+  // NOT stepped up to two-factor (aal2) — because the user hasn't passed
+  // their second factor yet, or hasn't enrolled one at all — is bounced to
+  // the login page, which drives the challenge or mandatory enrollment and
+  // then returns here with an aal2 cookie. Enforced server-side so it can't
+  // be skipped by navigating straight to a deep link. The login and
+  // reset-password pages are public, so this never loops on itself.
+  if (isProtectedOperatorPath && user) {
+    const { data: { session } } = await supabase.auth.getSession()
+    const aal = session?.access_token ? readAal(session.access_token) : null
+    if (aal !== 'aal2') {
+      const redirectUrl = new URL('/operator/login', request.url)
+      redirectUrl.searchParams.set('mfa', '1')
+      if (path !== '/operator') redirectUrl.searchParams.set('redirectedFrom', path)
+      return NextResponse.redirect(redirectUrl)
+    }
   }
 
   return response

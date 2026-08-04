@@ -1,11 +1,15 @@
 'use client'
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { signIn, signUp, getCurrentOperatorMember, completeOperatorSetup } from '@/lib/auth'
+import { signIn, signUp, getCurrentOperatorMember, completeOperatorSetup, requestPasswordReset } from '@/lib/auth'
+import { getAssuranceLevel, listFactors, type MfaFactor } from '@/lib/mfa'
+import MfaChallenge from '@/components/operator/MfaChallenge'
+import MfaEnroll from '@/components/operator/MfaEnroll'
 import { PageNav } from '@liabl/ui'
 
 type Mode = 'signin' | 'signup'
 type Phase = 'form' | 'confirmEmail' | 'setup' | 'redirecting'
+  | 'forgot' | 'forgotSent' | 'mfaChallenge' | 'mfaEnroll'
 
 interface InvitePreview {
   operatorName: string
@@ -46,6 +50,9 @@ function OperatorLoginForm() {
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null)
   const [inviteInvalidReason, setInviteInvalidReason] = useState<string | null>(null)
 
+  // MFA gate — verified factors on the account being signed in, if any.
+  const [mfaFactors, setMfaFactors] = useState<MfaFactor[]>([])
+
   // Organization setup fields (shown only when phase === 'setup')
   const [operatorName, setOperatorName] = useState('')
   const [governingLawState, setGoverningLawState] = useState('')
@@ -69,19 +76,36 @@ function OperatorLoginForm() {
     })()
   }, [inviteToken])
 
-  // If already logged in (e.g. re-visiting /operator/login directly),
-  // route the same way a fresh sign-in would.
+  // If already logged in (e.g. re-visiting /operator/login directly, or
+  // bounced here by middleware with ?mfa=1 because the session is still
+  // aal1), route the same way a fresh sign-in would — which now means
+  // passing through the MFA gate before reaching the dashboard.
   useEffect(() => {
     (async () => {
-      const member = await getCurrentOperatorMember()
-      if (member) {
-        setPhase('redirecting')
-        router.replace(redirectedFrom || '/operator')
-      }
+      const aal = await getAssuranceLevel()
+      if (!aal.currentLevel) return // signed out — show the form
+      await routeByAssurance()
     })()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function afterAuthSuccess() {
+  // The MFA gate. Called after any successful password authentication and
+  // on revisits with an existing session. MFA is required for every
+  // operator user, so an aal1 session is never allowed to proceed:
+  //   • has a verified factor → step-up challenge
+  //   • has none → mandatory enrollment
+  // Only an aal2 session falls through to the dashboard/setup routing.
+  async function routeByAssurance() {
+    const aal = await getAssuranceLevel()
+    if (aal.currentLevel !== 'aal2') {
+      const factors = await listFactors()
+      setMfaFactors(factors)
+      setPhase(factors.length > 0 ? 'mfaChallenge' : 'mfaEnroll')
+      return
+    }
+    await proceedToDashboardOrSetup()
+  }
+
+  async function proceedToDashboardOrSetup() {
     const member = await getCurrentOperatorMember()
     if (member) {
       setPhase('redirecting')
@@ -136,17 +160,34 @@ function OperatorLoginForm() {
     try {
       if (mode === 'signin') {
         await signIn(email.trim(), password)
-        await afterAuthSuccess()
+        await routeByAssurance()
       } else {
         const result = await signUp(email.trim(), password)
         if (result.needsEmailConfirmation) {
           setPhase('confirmEmail')
         } else {
-          await afterAuthSuccess()
+          await routeByAssurance()
         }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleForgotSubmit() {
+    setError(null)
+    if (!email.trim()) return
+    setSubmitting(true)
+    try {
+      await requestPasswordReset(email.trim())
+      // Always advance to the same confirmation screen regardless of
+      // whether the address had an account — not revealing which emails
+      // are registered is deliberate.
+      setPhase('forgotSent')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send the reset email')
     } finally {
       setSubmitting(false)
     }
@@ -218,6 +259,13 @@ function OperatorLoginForm() {
                 <input id="login-password" type="password" className="form-input" value={password} onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} name="password" />
+                {mode === 'signin' && (
+                  <div className="text-right mt-1.5">
+                    <button type="button" onClick={() => { setPhase('forgot'); setError(null) }} className="text-xs text-brand hover:underline">
+                      Forgot your password?
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button type="submit" disabled={submitting || !email.trim() || !password} className="btn-primary w-full py-2.5">
@@ -235,6 +283,45 @@ function OperatorLoginForm() {
             </p>
             <button onClick={() => { setPhase('form'); setMode('signin') }} className="text-sm text-brand underline mt-4">Back to sign in</button>
           </div>
+        )}
+
+        {phase === 'forgot' && (
+          <div className="card">
+            <h1 className="font-serif text-xl mb-1" style={{ letterSpacing: '-0.01em' }}>Reset your password</h1>
+            <p className="text-sm text-gray-400 mb-5">
+              Enter your account email and we&apos;ll send you a link to set a new password. Your email is your username, so this covers a forgotten username too.
+            </p>
+
+            {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700">{error}</div>}
+
+            <form onSubmit={e => { e.preventDefault(); handleForgotSubmit() }}>
+              <label htmlFor="forgot-email" className="block text-xs text-gray-500 mb-1">Email</label>
+              <input id="forgot-email" type="email" autoComplete="email" autoFocus className="form-input mb-4"
+                value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" />
+              <button type="submit" disabled={submitting || !email.trim()} className="btn-primary w-full py-2.5">
+                {submitting ? 'Sending…' : 'Send reset link'}
+              </button>
+            </form>
+            <button onClick={() => { setPhase('form'); setError(null) }} className="text-sm text-brand underline mt-4">Back to sign in</button>
+          </div>
+        )}
+
+        {phase === 'forgotSent' && (
+          <div className="card text-center">
+            <h1 className="font-serif text-xl mb-2" style={{ letterSpacing: '-0.01em' }}>Check your email</h1>
+            <p className="text-sm text-gray-500">
+              If an account exists for <span className="font-medium text-ink">{email}</span>, a password-reset link is on its way. The link expires shortly, so use it soon.
+            </p>
+            <button onClick={() => { setPhase('form'); setMode('signin') }} className="text-sm text-brand underline mt-4">Back to sign in</button>
+          </div>
+        )}
+
+        {phase === 'mfaChallenge' && (
+          <MfaChallenge factors={mfaFactors} onVerified={() => routeByAssurance()} />
+        )}
+
+        {phase === 'mfaEnroll' && (
+          <MfaEnroll onEnrolled={() => routeByAssurance()} />
         )}
 
         {phase === 'setup' && (
