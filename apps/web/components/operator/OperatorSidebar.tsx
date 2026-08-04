@@ -4,14 +4,14 @@
 // this component only reorganizes how they're grouped and selected. Groups fold;
 // Notifications moved to a top-bar bell and "Get started" to the footer.
 import { useState } from 'react'
-import { ChevronDown, X } from 'lucide-react'
+import { ChevronDown, X, LayoutGrid } from 'lucide-react'
 import {
   IconSigned, IconAnalytics, IconTemplate, IconAlert, IconAuditTrail,
   IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
 } from '@liabl/ui'
 
 export type OperatorTab =
-  | 'setup' | 'roster' | 'analytics' | 'templates' | 'documents' | 'reservations'
+  | 'dashboard' | 'setup' | 'roster' | 'analytics' | 'templates' | 'documents' | 'reservations'
   | 'incidents' | 'notifications' | 'multilocation' | 'mobile' | 'settings'
   | 'sessions' | 'developers' | 'branding' | 'marketing' | 'billing'
 
@@ -21,6 +21,7 @@ interface NavGroup { title: string; items: NavItem[] }
 
 // Human labels for every tab (used by the parent's top-bar breadcrumb too).
 export const TAB_LABELS: Record<OperatorTab, string> = {
+  dashboard: 'Dashboard',
   setup: 'Get started', roster: 'Roster', analytics: 'Analytics', templates: 'Templates',
   documents: 'Signed documents', reservations: 'Reservations', incidents: 'Incidents',
   notifications: 'Notifications', multilocation: 'Locations', mobile: 'Mobile app',
@@ -56,6 +57,12 @@ const SETTINGS_GROUP: NavGroup = { title: 'Settings', items: [
 ]}
 
 const SETUP_ITEM: NavItem = { key: 'setup', label: 'Get started', Icon: IconVerified }
+
+// Pinned above every group — the operator's landing page. lucide's `size` type
+// is `number | string`, wider than our IconCmp's `number`; a thin wrapper keeps
+// the icon prop contract uniform with the @liabl/ui icons.
+const DashboardIcon: IconCmp = ({ size, color }) => <LayoutGrid size={size} color={color} />
+const DASHBOARD_ITEM: NavItem = { key: 'dashboard', label: 'Dashboard', Icon: DashboardIcon }
 
 export default function OperatorSidebar({ tab, onSelect, operatorName, open, onClose }: {
   tab: OperatorTab
@@ -119,6 +126,7 @@ export default function OperatorSidebar({ tab, onSelect, operatorName, open, onC
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2.5">
+          <Item item={DASHBOARD_ITEM} />
           {GROUPS.map(g => <Group key={g.title} group={g} />)}
           <div className="mt-3"><Item item={BILLING_ITEM} /></div>
           <Group group={SETTINGS_GROUP} />

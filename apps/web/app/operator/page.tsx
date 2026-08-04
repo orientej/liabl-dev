@@ -19,6 +19,7 @@ import SettingsTab      from '@/components/operator/SettingsTab'
 import SessionsTab      from '@/components/operator/SessionsTab'
 import BillingTab       from '@/components/operator/BillingTab'
 import SetupWizard      from '@/components/operator/SetupWizard'
+import DashboardTab      from '@/components/operator/DashboardTab'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import { IMPERSONATION_FLAG_KEY } from '@/lib/supabase'
@@ -37,7 +38,7 @@ interface ImpersonationInfo {
 
 export default function OperatorPage() {
   const router = useRouter()
-  const [tab, setTab] = useState<Tab>('roster')
+  const [tab, setTab] = useState<Tab>('dashboard')
   // Falls back to the old hardcoded name only for the brief window before
   // the real operator loads — middleware already guarantees someone is
   // logged in by the time this page renders, so this is a loading state,
@@ -253,6 +254,7 @@ export default function OperatorPage() {
 
         <div className="flex-1 px-4 sm:px-6 py-8">
           <div className="max-w-5xl mx-auto">
+            {tab === 'dashboard'     && <DashboardTab onNavigate={(t) => setTab(t)} />}
             {tab === 'setup'         && <SetupWizard onNavigate={(t) => setTab(t)} />}
             {tab === 'roster'        && <RosterTab />}
             {tab === 'analytics'     && <AnalyticsTab />}
