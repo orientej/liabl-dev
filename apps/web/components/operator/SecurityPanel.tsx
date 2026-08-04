@@ -11,13 +11,28 @@
 import { useState, useEffect, useCallback } from 'react'
 import { updatePassword } from '@/lib/auth'
 import { listFactors, unenrollFactor, type MfaFactor } from '@/lib/mfa'
+import { listTrustedDevices, revokeTrustedDevice, type TrustedDevice } from '@/lib/trusted-device'
 import MfaEnroll from '@/components/operator/MfaEnroll'
+
+/** Best-effort human label for a stored user-agent string. */
+function deviceLabel(ua: string | null): string {
+  if (!ua) return 'Unknown device'
+  const os = /Windows/.test(ua) ? 'Windows' : /Macintosh|Mac OS/.test(ua) ? 'macOS' : /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : 'Device'
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : 'Browser'
+  return `${browser} on ${os}`
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 
 export default function SecurityPanel() {
   const [factors, setFactors] = useState<MfaFactor[]>([])
+  const [devices, setDevices] = useState<TrustedDevice[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -32,12 +47,27 @@ export default function SecurityPanel() {
     setLoading(true); setError(null)
     try {
       setFactors(await listFactors())
+      // Trusted-device list is a nice-to-have; never let it block the panel.
+      setDevices(await listTrustedDevices().catch(() => []))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load security settings')
     } finally {
       setLoading(false)
     }
   }, [])
+
+  async function revokeDevice(id: string) {
+    setRevokingDeviceId(id); setError(null); setNotice(null)
+    try {
+      await revokeTrustedDevice(id)
+      setNotice('Device signed out — it will need two-factor verification next time.')
+      setDevices(await listTrustedDevices().catch(() => []))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not revoke that device')
+    } finally {
+      setRevokingDeviceId(null)
+    }
+  }
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -139,6 +169,34 @@ export default function SecurityPanel() {
           + Add a method
         </button>
       )}
+
+      {/* Trusted devices — browsers that skip the 2FA prompt for 30 days */}
+      <div className="border-t border-black/8 mt-5 pt-4">
+        <div className="text-sm font-medium text-ink mb-1">Trusted devices</div>
+        <p className="text-xs text-gray-400 mb-3">
+          Browsers where you chose “Remember this device.” They skip the code prompt for 30 days. Revoke any you don’t recognize.
+        </p>
+        {loading ? (
+          <div className="text-sm text-gray-400 py-1">Loading…</div>
+        ) : devices.length === 0 ? (
+          <div className="text-xs text-gray-400">No trusted devices. You’ll enter a code every time you sign in.</div>
+        ) : (
+          <div className="space-y-2">
+            {devices.map(d => (
+              <div key={d.id} className="flex items-center justify-between bg-surface rounded-xl border border-black/8 p-3">
+                <div>
+                  <div className="text-sm text-ink">{deviceLabel(d.userAgent)}</div>
+                  <div className="text-xs text-gray-400">Last used {shortDate(d.lastUsedAt)} · expires {shortDate(d.expiresAt)}</div>
+                </div>
+                <button onClick={() => revokeDevice(d.id)} disabled={revokingDeviceId === d.id}
+                  className="text-xs text-red-500 hover:text-red-700 underline disabled:opacity-40">
+                  {revokingDeviceId === d.id ? 'Revoking…' : 'Revoke'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

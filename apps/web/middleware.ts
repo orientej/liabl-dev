@@ -57,6 +57,14 @@ function readAal(accessToken: string): string | null {
   }
 }
 
+/** SHA-256 hex of a string, using Web Crypto (available in the edge
+ * middleware runtime). Used to match a "remember this device" cookie
+ * against the stored token_hash without ever holding the plaintext. */
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
 /**
  * Origin (scheme + host) of a configured URL, or null when unset or
  * malformed. Malformed configuration must never take a surface down, so
@@ -210,10 +218,32 @@ export async function middleware(request: NextRequest) {
     const { data: { session } } = await supabase.auth.getSession()
     const aal = session?.access_token ? readAal(session.access_token) : null
     if (aal !== 'aal2') {
-      const redirectUrl = new URL('/operator/login', request.url)
-      redirectUrl.searchParams.set('mfa', '1')
-      if (path !== '/operator') redirectUrl.searchParams.set('redirectedFrom', path)
-      return NextResponse.redirect(redirectUrl)
+      // "Remember this device" bypass: an aal1 session is allowed through
+      // ONLY when this browser holds a valid trusted-device cookie whose
+      // hash matches a non-expired row for this user. The lookup runs as
+      // the authenticated user, so RLS (trusted_devices_select_own) scopes
+      // it to their own rows — a forged or another user's cookie can't
+      // match. Deleting the row (settings / DELETE route) revokes it here
+      // on the very next request. This DB touch only happens for aal1
+      // sessions, so fully MFA'd users never pay for it.
+      let trusted = false
+      const td = request.cookies.get('liabl_td')?.value
+      if (td) {
+        const tokenHash = await sha256Hex(td)
+        const { data } = await supabase
+          .from('trusted_devices')
+          .select('id')
+          .eq('token_hash', tokenHash)
+          .gt('expires_at', new Date().toISOString())
+          .maybeSingle()
+        trusted = !!data
+      }
+      if (!trusted) {
+        const redirectUrl = new URL('/operator/login', request.url)
+        redirectUrl.searchParams.set('mfa', '1')
+        if (path !== '/operator') redirectUrl.searchParams.set('redirectedFrom', path)
+        return NextResponse.redirect(redirectUrl)
+      }
     }
   }
 

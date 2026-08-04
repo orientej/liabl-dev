@@ -7,11 +7,15 @@
 // against that challenge.
 import { useState, useEffect, useCallback } from 'react'
 import { sendChallenge, verifyCode, type MfaFactor } from '@/lib/mfa'
+import { rememberThisDevice } from '@/lib/trusted-device'
 
-export default function MfaChallenge({ factors, onVerified }: {
+export default function MfaChallenge({ factors, onVerified, showRemember = false }: {
   factors: MfaFactor[]
   onVerified: () => void
+  /** Show the "remember this device for 30 days" opt-in (login only). */
+  showRemember?: boolean
 }) {
+  const [remember, setRemember] = useState(false)
   const [factorId, setFactorId] = useState(factors[0]?.id ?? '')
   const [challengeId, setChallengeId] = useState<string | null>(null)
   const [code, setCode] = useState('')
@@ -43,6 +47,9 @@ export default function MfaChallenge({ factors, onVerified }: {
     setVerifying(true); setError(null)
     try {
       await verifyCode(factorId, challengeId, code)
+      // Register the trust AFTER the step-up succeeds, so the cookie is
+      // only ever issued to a session that just passed a second factor.
+      if (showRemember && remember) await rememberThisDevice().catch(() => {})
       onVerified()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That code didn’t match. Try again.')
@@ -82,6 +89,13 @@ export default function MfaChallenge({ factors, onVerified }: {
           className="form-input tracking-[0.4em] text-center text-lg"
           value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
           placeholder="000000" />
+
+        {showRemember && (
+          <label className="flex items-center gap-2 mt-4 text-sm text-gray-600 select-none cursor-pointer">
+            <input type="checkbox" className="rounded border-black/20" checked={remember} onChange={e => setRemember(e.target.checked)} />
+            Remember this device for 30 days
+          </label>
+        )}
 
         <button type="submit" disabled={verifying || sending || code.trim().length < 6}
           className="btn-primary w-full py-2.5 mt-4">

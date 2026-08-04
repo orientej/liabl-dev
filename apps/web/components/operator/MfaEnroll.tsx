@@ -6,17 +6,21 @@
 // distinguishes those two callers — the login gate cannot be dismissed.
 import { useState } from 'react'
 import { enrollTotp, enrollPhone, sendChallenge, challengeAndVerify, verifyCode } from '@/lib/mfa'
+import { rememberThisDevice } from '@/lib/trusted-device'
 
 type Method = 'choose' | 'totp' | 'phone'
 
-export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel }: {
+export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel, showRemember = false }: {
   onEnrolled: () => void
   allowCancel?: boolean
   onCancel?: () => void
+  /** Show the "remember this device for 30 days" opt-in (login only). */
+  showRemember?: boolean
 }) {
   const [method, setMethod] = useState<Method>('choose')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [remember, setRemember] = useState(false)
 
   // TOTP state
   const [qrCode, setQrCode] = useState('')
@@ -46,6 +50,7 @@ export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel }:
     setBusy(true); setError(null)
     try {
       await challengeAndVerify(totpFactorId, code)
+      if (showRemember && remember) await rememberThisDevice().catch(() => {})
       onEnrolled()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That code didn’t match. Try again.')
@@ -74,6 +79,7 @@ export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel }:
     setBusy(true); setError(null)
     try {
       await verifyCode(phoneFactorId, phoneChallengeId, code)
+      if (showRemember && remember) await rememberThisDevice().catch(() => {})
       onEnrolled()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That code didn’t match. Try again.')
@@ -89,6 +95,13 @@ export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel }:
         value={code} onChange={e => setCode(e.target.value.replace(/\D/g, ''))} placeholder="000000" />
     </>
   )
+
+  const RememberBox = showRemember ? (
+    <label className="flex items-center gap-2 mt-4 text-sm text-gray-600 select-none cursor-pointer">
+      <input type="checkbox" className="rounded border-black/20" checked={remember} onChange={e => setRemember(e.target.checked)} />
+      Remember this device for 30 days
+    </label>
+  ) : null
 
   return (
     <div className="card">
@@ -134,6 +147,7 @@ export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel }:
           </div>
           <form onSubmit={e => { e.preventDefault(); verifyTotp() }}>
             {CodeInput}
+            {RememberBox}
             <button type="submit" disabled={busy || code.trim().length < 6} className="btn-primary w-full py-2.5 mt-4">
               {busy ? 'Verifying…' : 'Verify & enable'}
             </button>
@@ -157,6 +171,7 @@ export default function MfaEnroll({ onEnrolled, allowCancel = false, onCancel }:
             <form onSubmit={e => { e.preventDefault(); verifyPhone() }}>
               <p className="text-sm text-gray-500 mb-3">We texted a 6-digit code to {phone}.</p>
               {CodeInput}
+              {RememberBox}
               <button type="submit" disabled={busy || code.trim().length < 6} className="btn-primary w-full py-2.5 mt-4">
                 {busy ? 'Verifying…' : 'Verify & enable'}
               </button>

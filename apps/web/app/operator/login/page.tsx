@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn, signUp, getCurrentOperatorMember, completeOperatorSetup, requestPasswordReset } from '@/lib/auth'
 import { getAssuranceLevel, listFactors, type MfaFactor } from '@/lib/mfa'
+import { isDeviceTrusted } from '@/lib/trusted-device'
 import MfaChallenge from '@/components/operator/MfaChallenge'
 import MfaEnroll from '@/components/operator/MfaEnroll'
 import { PageNav } from '@liabl/ui'
@@ -98,8 +99,13 @@ function OperatorLoginForm() {
     const aal = await getAssuranceLevel()
     if (aal.currentLevel !== 'aal2') {
       const factors = await listFactors()
+      // No factor yet → mandatory enrollment (a trusted device can't skip
+      // the very first setup — trust is only ever granted after a verify).
+      if (factors.length === 0) { setPhase('mfaEnroll'); return }
+      // Otherwise, a "remembered" device skips the step-up challenge.
+      if (await isDeviceTrusted()) { await proceedToDashboardOrSetup(); return }
       setMfaFactors(factors)
-      setPhase(factors.length > 0 ? 'mfaChallenge' : 'mfaEnroll')
+      setPhase('mfaChallenge')
       return
     }
     await proceedToDashboardOrSetup()
@@ -317,11 +323,11 @@ function OperatorLoginForm() {
         )}
 
         {phase === 'mfaChallenge' && (
-          <MfaChallenge factors={mfaFactors} onVerified={() => routeByAssurance()} />
+          <MfaChallenge factors={mfaFactors} showRemember onVerified={() => routeByAssurance()} />
         )}
 
         {phase === 'mfaEnroll' && (
-          <MfaEnroll onEnrolled={() => routeByAssurance()} />
+          <MfaEnroll showRemember onEnrolled={() => routeByAssurance()} />
         )}
 
         {phase === 'setup' && (
