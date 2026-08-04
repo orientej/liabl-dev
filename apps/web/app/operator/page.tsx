@@ -22,12 +22,10 @@ import SetupWizard      from '@/components/operator/SetupWizard'
 import { getCurrentOperatorMember, signOut } from '@/lib/auth'
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing'
 import { IMPERSONATION_FLAG_KEY } from '@/lib/supabase'
-import {
-  IconSigned, IconAnalytics, IconTemplate, IconAlert,
-  IconAuditTrail, IconLocation, IconMobile, IconUserGroup, IconRocket, IconVerified,
-} from '@liabl/ui'
+import OperatorSidebar, { TAB_LABELS, type OperatorTab } from '@/components/operator/OperatorSidebar'
+import { Menu, Bell } from 'lucide-react'
 
-type Tab = 'setup'|'roster'|'analytics'|'templates'|'documents'|'reservations'|'incidents'|'notifications'|'multilocation'|'mobile'|'settings'|'sessions'|'developers'|'branding'|'marketing'|'billing'
+type Tab = OperatorTab
 
 const IMPERSONATION_LIMIT_MS = 30 * 60 * 1000 // 30 minutes, decided before this was scoped
 
@@ -49,6 +47,7 @@ export default function OperatorPage() {
   const [suspended, setSuspended] = useState(false)
   const [impersonation, setImpersonation] = useState<ImpersonationInfo | null>(null)
   const [remainingLabel, setRemainingLabel] = useState('')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const exitingRef = useRef(false)
 
   useEffect(() => {
@@ -166,25 +165,6 @@ export default function OperatorPage() {
     router.replace('/operator/login')
   }
 
-  const tabs: { key:Tab; label:string; Icon: React.ComponentType<{size?:number;color?:string}> }[] = [
-    { key:'setup',         label:'Get started',    Icon: IconVerified   },
-    { key:'sessions',      label:'Sessions',       Icon: IconRocket     },
-    { key:'roster',        label:'Roster',         Icon: IconSigned     },
-    { key:'analytics',     label:'Analytics',      Icon: IconAnalytics  },
-    { key:'templates',     label:'Templates',      Icon: IconTemplate   },
-    { key:'documents',     label:'Documents',      Icon: IconSigned     },
-    { key:'reservations',  label:'Reservations',   Icon: IconUserGroup  },
-    { key:'incidents',     label:'Incidents',      Icon: IconAlert      },
-    { key:'notifications', label:'Notifications',  Icon: IconAuditTrail },
-    { key:'multilocation', label:'Multi-Location', Icon: IconLocation   },
-    { key:'mobile',        label:'Mobile App',     Icon: IconMobile     },
-    { key:'settings',      label:'Settings',       Icon: IconUserGroup  },
-    { key:'branding',      label:'Branding',       Icon: IconTemplate   },
-    { key:'marketing',     label:'Marketing',      Icon: IconAuditTrail },
-    { key:'billing',       label:'Billing',        Icon: IconVerified   },
-    { key:'developers',    label:'Developers',     Icon: IconRocket     },
-  ]
-
   if (suspended) {
     return (
       <div className="min-h-screen bg-surface">
@@ -213,72 +193,84 @@ export default function OperatorPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <PageNav badge="Operator" operatorName={operatorName} operatorAccent="#4B2ACF" onSignOut={handleSignOut} />
+    <div className="min-h-screen bg-surface flex">
+      <OperatorSidebar
+        tab={tab}
+        onSelect={(t) => { setTab(t); setMobileNavOpen(false) }}
+        operatorName={operatorName}
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+      />
 
-      {impersonation && (
-        <div className="px-5 py-2.5 text-sm text-center font-medium bg-amber-100 text-amber-900 border-b-2 border-amber-400 flex items-center justify-center gap-3 flex-wrap">
-          <span>
-            You are viewing as <strong>{impersonation.targetEmail}</strong>
-            {impersonation.operatorName && <> ({impersonation.operatorName})</>}
-            {remainingLabel && <> — session ends in {remainingLabel}</>}
-          </span>
-          <button onClick={() => exitImpersonation('manual')}
-            className="px-3 py-1 rounded-lg bg-amber-900 text-white text-xs font-semibold hover:opacity-90">
-            Return to admin
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Top bar */}
+        <div className="sticky top-0 z-20 bg-white border-b border-black/10 px-4 sm:px-6 py-3 flex items-center gap-3">
+          <button onClick={() => setMobileNavOpen(true)} aria-label="Open navigation"
+            className="lg:hidden w-9 h-9 rounded-lg border border-black/10 flex items-center justify-center text-gray-500 hover:text-ink">
+            <Menu size={18} />
           </button>
+          <span className="text-sm font-medium text-ink">{TAB_LABELS[tab]}</span>
+          <div className="flex-1" />
+          <button onClick={() => setTab('notifications')} aria-label="Notifications" title="Notifications"
+            className={`relative w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
+              tab === 'notifications' ? 'border-brand text-brand' : 'border-black/10 text-gray-500 hover:text-ink'
+            }`}>
+            <Bell size={17} />
+          </button>
+          <button onClick={handleSignOut} className="text-sm text-gray-500 hover:text-ink px-2">Sign out</button>
         </div>
-      )}
 
-      {/* Usage banner — soft block by design: signing is never
-          interrupted by this, it's purely a visible staff alert,
-          matching the corrected (no-longer-false) notification copy
-          in 013_m5_billing.sql. Shown at 85%+, same threshold as the
-          notification trigger, so the two stay consistent. */}
-      {billing && billing.percentUsed >= 85 && (
-        <div className={`px-5 py-2.5 text-sm text-center font-medium ${
-          billing.percentUsed >= 100 ? 'bg-red-50 text-red-700 border-b border-red-200' : 'bg-amber-50 text-amber-700 border-b border-amber-200'
-        }`}>
-          {billing.percentUsed >= 100
-            ? `You've used ${billing.used} of ${billing.limit} signatures for ${billing.periodLabel} — over your plan limit. Signing still works uninterrupted; `
-            : `${billing.used} of ${billing.limit} signatures used for ${billing.periodLabel} (${billing.percentUsed}%). `
-          }
-          <a href="/pricing" className="underline font-semibold">
-            {billing.percentUsed >= 100 ? 'contact us to upgrade' : 'view upgrade options'}
-          </a>
-        </div>
-      )}
-
-      <div className="bg-white border-b border-black/10 px-5 overflow-x-auto">
-        <div className="flex gap-0 max-w-4xl mx-auto min-w-max">
-          {tabs.map(({ key, label, Icon }) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap inline-flex items-center gap-2 ${
-                tab === key ? 'border-brand text-brand' : 'border-transparent text-gray-500 hover:text-ink'
-              }`}>
-              <Icon size={16}/>
-              {label}
+        {impersonation && (
+          <div className="px-5 py-2.5 text-sm text-center font-medium bg-amber-100 text-amber-900 border-b-2 border-amber-400 flex items-center justify-center gap-3 flex-wrap">
+            <span>
+              You are viewing as <strong>{impersonation.targetEmail}</strong>
+              {impersonation.operatorName && <> ({impersonation.operatorName})</>}
+              {remainingLabel && <> — session ends in {remainingLabel}</>}
+            </span>
+            <button onClick={() => exitImpersonation('manual')}
+              className="px-3 py-1 rounded-lg bg-amber-900 text-white text-xs font-semibold hover:opacity-90">
+              Return to admin
             </button>
-          ))}
+          </div>
+        )}
+
+        {/* Usage banner — soft block by design: signing is never interrupted by
+            this, it's purely a visible staff alert (see 013_m5_billing.sql).
+            Shown at 85%+, same threshold as the notification trigger. */}
+        {billing && billing.percentUsed >= 85 && (
+          <div className={`px-5 py-2.5 text-sm text-center font-medium ${
+            billing.percentUsed >= 100 ? 'bg-red-50 text-red-700 border-b border-red-200' : 'bg-amber-50 text-amber-700 border-b border-amber-200'
+          }`}>
+            {billing.percentUsed >= 100
+              ? `You've used ${billing.used} of ${billing.limit} signatures for ${billing.periodLabel} — over your plan limit. Signing still works uninterrupted; `
+              : `${billing.used} of ${billing.limit} signatures used for ${billing.periodLabel} (${billing.percentUsed}%). `
+            }
+            <a href="/pricing" className="underline font-semibold">
+              {billing.percentUsed >= 100 ? 'contact us to upgrade' : 'view upgrade options'}
+            </a>
+          </div>
+        )}
+
+        <div className="flex-1 px-4 sm:px-6 py-8">
+          <div className="max-w-5xl mx-auto">
+            {tab === 'setup'         && <SetupWizard onNavigate={(t) => setTab(t)} />}
+            {tab === 'roster'        && <RosterTab />}
+            {tab === 'analytics'     && <AnalyticsTab />}
+            {tab === 'templates'     && <TemplateTab />}
+            {tab === 'documents'     && <DocumentsTab />}
+            {tab === 'reservations'  && <ReservationsTab />}
+            {tab === 'incidents'     && <IncidentTab />}
+            {tab === 'notifications' && <NotificationTab />}
+            {tab === 'multilocation' && <MultiLocationTab />}
+            {tab === 'mobile'        && <MobileTab />}
+            {tab === 'settings'      && <SettingsTab onNavigateToSessions={() => setTab('sessions')} />}
+            {tab === 'sessions'      && <SessionsTab />}
+            {tab === 'developers'    && <DevelopersTab />}
+            {tab === 'branding'      && <BrandingTab />}
+            {tab === 'marketing'     && <MarketingTab />}
+            {tab === 'billing'       && <BillingTab />}
+          </div>
         </div>
-      </div>
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {tab === 'setup'         && <SetupWizard onNavigate={(t) => setTab(t)} />}
-        {tab === 'roster'        && <RosterTab />}
-        {tab === 'analytics'     && <AnalyticsTab />}
-        {tab === 'templates'     && <TemplateTab />}
-        {tab === 'documents'     && <DocumentsTab />}
-        {tab === 'reservations'  && <ReservationsTab />}
-        {tab === 'incidents'     && <IncidentTab />}
-        {tab === 'notifications' && <NotificationTab />}
-        {tab === 'multilocation' && <MultiLocationTab />}
-        {tab === 'mobile'        && <MobileTab />}
-        {tab === 'settings'      && <SettingsTab onNavigateToSessions={() => setTab('sessions')} />}
-        {tab === 'sessions'      && <SessionsTab />}
-        {tab === 'developers'    && <DevelopersTab />}
-        {tab === 'branding'      && <BrandingTab />}
-        {tab === 'marketing'     && <MarketingTab />}
-        {tab === 'billing'       && <BillingTab />}
       </div>
     </div>
   )
