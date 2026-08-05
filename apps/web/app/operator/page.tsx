@@ -49,6 +49,10 @@ export default function OperatorPage() {
   const [impersonation, setImpersonation] = useState<ImpersonationInfo | null>(null)
   const [remainingLabel, setRemainingLabel] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // Session the Roster should open filtered to, set by "Check in this
+  // group" on the Reservations tab (Issue 5). RosterTab remounts on each
+  // tab entry, so it picks this up fresh whenever we switch to it.
+  const [rosterSessionId, setRosterSessionId] = useState<string | null>(null)
   const exitingRef = useRef(false)
 
   useEffect(() => {
@@ -197,7 +201,7 @@ export default function OperatorPage() {
     <div className="min-h-screen bg-surface flex">
       <OperatorSidebar
         tab={tab}
-        onSelect={(t) => { setTab(t); setMobileNavOpen(false) }}
+        onSelect={(t) => { if (t === 'roster') setRosterSessionId(null); setTab(t); setMobileNavOpen(false) }}
         operatorName={operatorName}
         open={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
@@ -256,11 +260,11 @@ export default function OperatorPage() {
           <div className="max-w-5xl mx-auto">
             {tab === 'dashboard'     && <DashboardTab onNavigate={(t) => setTab(t)} />}
             {tab === 'setup'         && <SetupWizard onNavigate={(t) => setTab(t)} />}
-            {tab === 'roster'        && <RosterTab />}
+            {tab === 'roster'        && <RosterTab initialSessionId={rosterSessionId} />}
             {tab === 'analytics'     && <AnalyticsTab />}
             {tab === 'templates'     && <TemplateTab />}
             {tab === 'documents'     && <DocumentsTab />}
-            {tab === 'reservations'  && <ReservationsTab />}
+            {tab === 'reservations'  && <ReservationsTab onCheckInGroup={(sessionId) => { setRosterSessionId(sessionId); setTab('roster') }} />}
             {tab === 'incidents'     && <IncidentTab />}
             {tab === 'notifications' && <NotificationTab />}
             {tab === 'multilocation' && <MultiLocationTab />}

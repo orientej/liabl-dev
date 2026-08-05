@@ -6,9 +6,12 @@
 // as send-confirmation), then the admin client does the actual reads/sends
 // (reservation_members has no public-read).
 //
-//   POST /api/reservations/{id}/send-invites  { memberIds?: string[] }
-//   -> sends to the given members, or to all members with an email that
-//      haven't been invited yet. Returns how many were sent.
+//   POST /api/reservations/{id}/send-invites  { memberIds?: string[], remindUnsigned?: boolean }
+//   -> memberIds given: send to exactly those members.
+//      remindUnsigned: (re)send to every member with an email who hasn't
+//        signed yet — the "Send reminder" action scoped to the group.
+//      neither: send to all members with an email not yet invited.
+//      Returns how many were sent.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServerClient } from '@/lib/supabase-server'
@@ -25,6 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const body = await request.json().catch(() => ({}))
   const memberIds: string[] | undefined = Array.isArray(body.memberIds) ? body.memberIds : undefined
+  const remindUnsigned: boolean = body.remindUnsigned === true
 
   const admin = createAdminClient()
   const { data: reservation } = await admin
@@ -51,10 +55,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   // Which members to invite.
   let query = admin.from('reservation_members')
-    .select('id, email, member_token, invited_at')
+    .select('id, email, member_token, invited_at, status')
     .eq('reservation_id', reservation.id)
     .not('email', 'is', null)
   if (memberIds && memberIds.length > 0) query = query.in('id', memberIds)
+  // Reminder mode: only those who still haven't signed.
+  else if (remindUnsigned) query = query.neq('status', 'signed')
   const { data: members } = await query
 
   const [{ data: op }, { data: activity }] = await Promise.all([
@@ -67,8 +73,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   let sent = 0
   const errors: string[] = []
   for (const m of members ?? []) {
-    // When no explicit list was given, skip already-invited members.
-    if (!memberIds && m.invited_at) continue
+    // Plain "invite all" skips already-invited members; a reminder
+    // deliberately re-sends to everyone still unsigned.
+    if (!memberIds && !remindUnsigned && m.invited_at) continue
     try {
       await sendReservationInviteEmail({
         to:              m.email as string,

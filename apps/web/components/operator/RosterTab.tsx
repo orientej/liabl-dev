@@ -83,7 +83,7 @@ function ageFromDob(dob: unknown): number | undefined {
 
 // ─── RosterTab ────────────────────────────────────────────────────────────────
 
-export default function RosterTab() {
+export default function RosterTab({ initialSessionId }: { initialSessionId?: string | null } = {}) {
   const [roster,       setRoster]       = useState<WaiverRow[]>(DEMO)
   const [isDemo,       setIsDemo]       = useState(true)
   const [returningIds, setReturningIds] = useState<Set<string>>(new Set())
@@ -94,8 +94,11 @@ export default function RosterTab() {
   // Session filter: 'all' shows every participant across ACTIVE sessions
   // (archived sessions are excluded from 'all' by design — selecting an
   // archived session explicitly is how its signed waivers stay reachable).
+  // Seeded from initialSessionId when the Reservations tab deep-links here
+  // via "Check in this group" (Issue 5), so the roster opens pre-filtered
+  // to that party's session.
   const [sessions,     setSessions]     = useState<SessionRecord[]>([])
-  const [sessionFilter, setSessionFilter] = useState<string>('all')
+  const [sessionFilter, setSessionFilter] = useState<string>(initialSessionId ?? 'all')
   const [activities,   setActivities]   = useState<ActivityRecord[]>([])
   // Multi-document check-in: count of supplemental documents signed per
   // check-in (waiver id -> count), for the roster row badge.

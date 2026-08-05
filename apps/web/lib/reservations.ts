@@ -26,6 +26,7 @@ export interface ReservationRecord {
   // Progress
   memberCount:      number   // invited attendees on the named roster
   signedCount:      number   // waivers linked to this reservation that are signed
+  checkedInCount:   number   // signed waivers that have also been checked in
   expectedCount:    number   // max(partySize, memberCount)
 }
 
@@ -92,7 +93,7 @@ export async function listReservations(operatorId: string): Promise<ReservationR
       .eq('operator_id', operatorId),
     supabase
       .from('waivers')
-      .select('reservation_id')
+      .select('reservation_id, signed_at, checked_in_at')
       .eq('operator_id', operatorId)
       .not('reservation_id', 'is', null)
       .not('signed_at', 'is', null),
@@ -103,8 +104,11 @@ export async function listReservations(operatorId: string): Promise<ReservationR
   const memberCounts = new Map<string, number>()
   for (const m of members ?? []) memberCounts.set(m.reservation_id, (memberCounts.get(m.reservation_id) ?? 0) + 1)
   const signedCounts = new Map<string, number>()
+  const checkedInCounts = new Map<string, number>()
   for (const w of signed ?? []) {
-    if (w.reservation_id) signedCounts.set(w.reservation_id, (signedCounts.get(w.reservation_id) ?? 0) + 1)
+    if (!w.reservation_id) continue
+    signedCounts.set(w.reservation_id, (signedCounts.get(w.reservation_id) ?? 0) + 1)
+    if (w.checked_in_at) checkedInCounts.set(w.reservation_id, (checkedInCounts.get(w.reservation_id) ?? 0) + 1)
   }
 
   return (rows ?? []).map(r => {
@@ -124,9 +128,21 @@ export async function listReservations(operatorId: string): Promise<ReservationR
       createdAt:        r.created_at,
       memberCount,
       signedCount,
+      checkedInCount:   checkedInCounts.get(r.id) ?? 0,
       expectedCount:    Math.max(r.party_size ?? 0, memberCount),
     }
   })
+}
+
+/** Edit the expected party size after creation (Issue 2). Null clears it,
+ * which falls the expected count back to the named-attendee count. */
+export async function updateReservationPartySize(reservationId: string, partySize: number | null): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('reservations')
+    .update({ party_size: partySize && partySize > 0 ? Math.round(partySize) : null })
+    .eq('id', reservationId)
+  if (error) throw new Error(`update party size: ${error.message}`)
 }
 
 export async function listReservationMembers(reservationId: string): Promise<ReservationMemberRecord[]> {
