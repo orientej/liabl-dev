@@ -79,6 +79,11 @@ async function persistQueuedCheckIn(rec: QueuedCheckIn): Promise<void> {
     ip_address:     rec.ipAddress,
     template_version_id: templateVersionId,
     reservation_id: rec.reservationId ?? null,
+    // Auto check-in (per-arrival): an offline check-in is an on-site kiosk
+    // signature. A walk-up/group check-in (no member token) is an arrival, so
+    // stamp checked_in_at; an advance member-invite link is left for the
+    // operator's group check-in. Mirrors the live flow in ParticipantFlow.
+    checked_in_at: rec.reservationId && !rec.memberToken ? rec.signedAt : null,
   })
   // 23505 = unique_violation → already inserted by a previous partial sync;
   // fall through and (re)seal so the row still ends up sealed.

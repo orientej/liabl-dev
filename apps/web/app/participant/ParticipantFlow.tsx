@@ -493,6 +493,14 @@ export default function ParticipantFlow() {
           // any). reservation_member_id is set afterwards by the
           // service-role member-complete route (anon can't write it).
           reservation_id: reservationId ?? null,
+          // Auto check-in (per-arrival): a walk-up (shared QR) or group-leader
+          // signature happens AT the venue, so completing it IS the arrival —
+          // stamp checked_in_at now so the reservation's "Checked in" count
+          // fills in automatically. An advance member-invite link (rm token,
+          // typically signed remotely from home) is deliberately left
+          // un-stamped; those become checked in when the operator checks the
+          // group in. No token = on-site.
+          checked_in_at: reservationId && !memberToken ? signedAt : null,
         })
 
       if (waiverError) throw new Error(`waiver insert: ${waiverError.message}`)
